@@ -508,7 +508,14 @@ namespace PremiumLudo
                     break;
                 }
 
-                action();
+                try
+                {
+                    action();
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception);
+                }
             }
         }
 

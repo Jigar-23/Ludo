@@ -1310,24 +1310,32 @@ namespace PremiumLudo
                 return;
             }
 
-            LudoTokenColor assignedColor;
-            if (_onlineService != null && TryParseColor(_onlineService.LocalColor, out assignedColor))
+            try
             {
-                _localColor = assignedColor;
-            }
-
-            _roomSnapshot = snapshot;
-            if (_activeSession != null && _activeSession.UsesNetwork && _gameController != null && _gameController.SessionActive)
-            {
-                if (snapshot.Started)
+                LudoTokenColor assignedColor;
+                if (_onlineService != null && TryParseColor(_onlineService.LocalColor, out assignedColor))
                 {
-                    _gameController.ApplyOnlineSnapshot(snapshot, true);
-                    ShowGameplay();
-                    return;
+                    _localColor = assignedColor;
                 }
-            }
 
-            ShowLobby();
+                _roomSnapshot = snapshot;
+                if (_activeSession != null && _activeSession.UsesNetwork && _gameController != null && _gameController.SessionActive)
+                {
+                    if (snapshot.Started)
+                    {
+                        _gameController.ApplyOnlineSnapshot(snapshot, true);
+                        ShowGameplay();
+                        return;
+                    }
+                }
+
+                ShowLobby();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+                OnOnlineErrorReceived("Failed to open the online lobby.");
+            }
         }
 
         private void OnOnlineMatchStarted(LudoRoomSnapshot snapshot)
@@ -1337,22 +1345,30 @@ namespace PremiumLudo
                 return;
             }
 
-            _roomSnapshot = snapshot;
-
-            if (_activeSession == null || !_activeSession.UsesNetwork || _gameController == null || !_gameController.SessionActive)
+            try
             {
-                LudoSessionConfig session = BuildOnlineSession(snapshot);
-                if (session == null)
+                _roomSnapshot = snapshot;
+
+                if (_activeSession == null || !_activeSession.UsesNetwork || _gameController == null || !_gameController.SessionActive)
                 {
-                    return;
+                    LudoSessionConfig session = BuildOnlineSession(snapshot);
+                    if (session == null)
+                    {
+                        return;
+                    }
+
+                    BeginGameplay(session);
                 }
 
-                BeginGameplay(session);
+                if (_gameController != null && _gameController.SessionActive)
+                {
+                    _gameController.ApplyOnlineSnapshot(snapshot, true);
+                }
             }
-
-            if (_gameController != null && _gameController.SessionActive)
+            catch (Exception exception)
             {
-                _gameController.ApplyOnlineSnapshot(snapshot, true);
+                Debug.LogException(exception);
+                OnOnlineErrorReceived("Failed to start the online match.");
             }
         }
 
