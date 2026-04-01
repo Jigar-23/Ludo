@@ -97,6 +97,10 @@ function incrementRoomSequence(room) {
   room.roomSequence += 1;
 }
 
+function getConnectedColors(room) {
+  return clockwiseColors.filter((color) => room.activeColors.includes(color) && room.seats.has(color));
+}
+
 function appendChat(room, sender, message, color) {
   room.chatSequence += 1;
   room.chatMessages.push({
@@ -221,11 +225,13 @@ app.post("/api/ludo/rooms/:roomCode/start", (req, res) => {
     return res.status(404).json(failure("Room not found."));
   }
 
-  const connectedCount = room.activeColors.filter((color) => room.seats.has(color)).length;
-  if (connectedCount < room.playerCount) {
-    return res.status(409).json(failure("Not all players have joined yet."));
+  const connectedColors = getConnectedColors(room);
+  if (connectedColors.length < 2) {
+    return res.status(409).json(failure("At least 2 connected players are required to start."));
   }
 
+  room.activeColors = connectedColors.slice();
+  room.playerCount = connectedColors.length;
   room.started = true;
   incrementRoomSequence(room);
   return res.json(success(buildSnapshot(room)));

@@ -745,8 +745,8 @@ namespace PremiumLudo
                     : "Waiting...";
             }
 
-            bool readyToStart = connectedCount >= _roomSnapshot.PlayerCount && activeColors.Count >= _roomSnapshot.PlayerCount;
-            int remainingPlayers = Mathf.Max(0, _roomSnapshot.PlayerCount - connectedCount);
+            bool readyToStart = connectedCount >= 2;
+            int remainingPlayers = Mathf.Max(0, 2 - connectedCount);
             if (_lobbyStatusText != null)
             {
                 if (_roomSnapshot.Started)
@@ -756,12 +756,12 @@ namespace PremiumLudo
                 else if (_onlineService != null && _onlineService.IsHost)
                 {
                     _lobbyStatusText.text = readyToStart
-                        ? "All players are in. Start the match when ready."
+                        ? "Start whenever you want. The match will use the connected players only."
                         : "Waiting for " + remainingPlayers + " more player" + (remainingPlayers == 1 ? "." : "s.");
                 }
                 else
                 {
-                    _lobbyStatusText.text = readyToStart ? "Waiting for the host to start." : "Waiting for the room to fill.";
+                    _lobbyStatusText.text = readyToStart ? "Waiting for the host to start." : "Waiting for at least 2 players.";
                 }
             }
 
@@ -1160,7 +1160,9 @@ namespace PremiumLudo
             LudoSessionConfig sessionConfig = new LudoSessionConfig
             {
                 Mode = LudoGameMode.Online,
-                LocalPlayerName = GetPlayerNameInput(),
+                LocalPlayerName = _onlineService != null && !string.IsNullOrWhiteSpace(_onlineService.LocalPlayerName)
+                    ? _onlineService.LocalPlayerName
+                    : GetPlayerNameInput(),
                 RoomCode = snapshot.RoomCode,
                 IsHost = _onlineService != null && _onlineService.IsHost,
             };

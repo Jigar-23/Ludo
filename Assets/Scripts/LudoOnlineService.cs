@@ -10,7 +10,7 @@ namespace PremiumLudo
     public sealed class LudoOnlineService : MonoBehaviour
     {
         private const float PollIntervalSeconds = 0.45f;
-        private const string DefaultServerBaseUrl = "https://your-render-service.onrender.com/api/ludo";
+        private const string DefaultServerBaseUrl = "https://ludo-server-vg5b.onrender.com/api/ludo";
 
         [Serializable]
         private sealed class CreateRoomRequest

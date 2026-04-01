@@ -46,6 +46,8 @@ Set it to your Render deployment URL, for example:
 
 - This server already supports room create/join, chat, turn sync, and polling.
 - Chat sender names come from the `PlayerName` provided by the Unity client when creating or joining.
+- The host can start once at least 2 players are connected, even if the room was originally created for 3 or 4.
+- When the host starts early, the match uses only the currently connected colors.
 - This server keeps room state in memory only.
 - Restarting the service clears active rooms.
 - You do not need a separate chat service right now; chat is already part of this backend.
