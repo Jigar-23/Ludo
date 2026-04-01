@@ -1,0 +1,38 @@
+.DS_Store
+
+# Unity generated folders
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+[Uu]serSettings/
+
+# Unity generated files
+*.csproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# Render server dependencies
+RenderServer/node_modules/
+
+# OS / misc
+*.swp
+*.stackdump
