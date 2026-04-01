@@ -275,7 +275,7 @@ namespace PremiumLudo
             _animationController.Delay(revealDelay + 0.30f, onComplete);
         }
 
-        private void Update()
+        private void OnRectTransformDimensionsChange()
         {
             if (_uiLayer == null || _rectTransform == null)
             {
@@ -334,7 +334,7 @@ namespace PremiumLudo
             _shadowRect.anchorMin = _shadowRect.anchorMax = new Vector2(0.5f, 0.5f);
             _shadowRect.pivot = new Vector2(0.5f, 0.5f);
             Image shadow = LudoUtility.GetOrAddComponent<Image>(_shadowRect.gameObject);
-            shadow.sprite = LudoSpriteFactory.RoundedMask;
+            LudoUtility.ApplySprite(shadow, LudoSpriteFactory.RoundedMask);
             shadow.color = DieShadowColor;
             shadow.raycastTarget = false;
 
@@ -343,7 +343,7 @@ namespace PremiumLudo
             _buttonVisual.pivot = new Vector2(0.5f, 0.5f);
 
             Image fill = LudoUtility.GetOrAddComponent<Image>(_buttonVisual.gameObject);
-            fill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(fill, LudoSpriteFactory.RoundedMask);
             fill.color = new Color(0.99f, 0.99f, 0.98f, 1f);
             fill.raycastTarget = true;
 
@@ -390,7 +390,7 @@ namespace PremiumLudo
             LudoUtility.Stretch(shadow.rectTransform, -6f, -6f, -8f, -2f);
             shadow.raycastTarget = false;
 
-            Image fill = LudoUtility.CreateImage("Fill", slotRect, LudoSpriteFactory.RoundedGradient, SlotFillColor);
+            Image fill = LudoUtility.CreateImage("Fill", slotRect, LudoSpriteFactory.RoundedMask, SlotFillColor);
             LudoUtility.Stretch(fill.rectTransform);
             fill.raycastTarget = false;
             _slotFillImages[index] = fill;
@@ -399,7 +399,7 @@ namespace PremiumLudo
             LudoUtility.Stretch(border.rectTransform, 2.5f, 2.5f, 2.5f, 2.5f);
             border.raycastTarget = false;
 
-            Image panel = LudoUtility.CreateImage("Panel", slotRect, LudoSpriteFactory.RoundedGradient, new Color(0.96f, 0.93f, 0.89f, 0.96f));
+            Image panel = LudoUtility.CreateImage("Panel", slotRect, LudoSpriteFactory.RoundedMask, new Color(0.988f, 0.979f, 0.962f, 0.97f));
             LudoUtility.Stretch(panel.rectTransform, 5.5f, 5.5f, 5.5f, 5.5f);
             panel.raycastTarget = false;
 
@@ -416,7 +416,7 @@ namespace PremiumLudo
             faceDock.anchorMin = faceDock.anchorMax = faceDock.pivot = new Vector2(0.5f, 0.5f);
             _slotFaceDockRects[index] = faceDock;
 
-            Image faceFill = LudoUtility.CreateImage("Fill", faceDock, LudoSpriteFactory.RoundedGradient, SlotFaceIdleColor);
+            Image faceFill = LudoUtility.CreateImage("Fill", faceDock, LudoSpriteFactory.RoundedMask, SlotFaceIdleColor);
             LudoUtility.Stretch(faceFill.rectTransform);
             faceFill.raycastTarget = false;
             _slotFaceDockImages[index] = faceFill;
@@ -444,7 +444,7 @@ namespace PremiumLudo
 
             Image tokenIcon = LudoUtility.CreateImage("TokenIcon", tokenBadge, LudoArtLibrary.GetTokenSprite(GetDockTokenColor(dock)), Color.white);
             tokenIcon.preserveAspect = true;
-            tokenIcon.useSpriteMesh = true;
+            tokenIcon.useSpriteMesh = false;
             tokenIcon.raycastTarget = false;
             _slotTokenIconImages[index] = tokenIcon;
         }

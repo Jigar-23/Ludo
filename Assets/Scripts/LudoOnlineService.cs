@@ -1,16 +1,14 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Text;
 using UnityEngine;
-using UnityEngine.Networking;
 
 namespace PremiumLudo
 {
     public sealed class LudoOnlineService : MonoBehaviour
     {
-        private const float PollIntervalSeconds = 0.45f;
-        private const string DefaultServerBaseUrl = "https://ludo-server-vg5b.onrender.com/api/ludo";
+        private const string DefaultServerBaseUrl = "https://ludo-server-vg5b.onrender.com";
+        private const float PendingCommandTimeoutSeconds = 20f;
+        private const float SlowConnectNoticeSeconds = 6f;
 
         [Serializable]
         private sealed class CreateRoomRequest
@@ -30,36 +28,51 @@ namespace PremiumLudo
         }
 
         [Serializable]
-        private sealed class StartRoomRequest
+        private sealed class RecoverSessionRequest
         {
             public string RoomCode;
+            public string PlayerId;
+        }
+
+        [Serializable]
+        private sealed class RoomPlayerRequest
+        {
+            public string RoomCode;
+            public string PlayerId;
         }
 
         [Serializable]
         private sealed class ChatRequest
         {
+            public string RoomCode;
+            public string PlayerId;
             public string Sender;
             public string Message;
             public string Color;
         }
 
         [Serializable]
-        private sealed class LeaveRoomRequest
-        {
-            public string PlayerName;
-            public string Color;
-        }
-
-        [Serializable]
         private sealed class TurnRequest
         {
+            public string RoomCode;
+            public string PlayerId;
             public string Color;
             public int Roll;
             public int TokenIndex;
             public bool NoMove;
         }
 
+        private enum PendingCommand
+        {
+            None = 0,
+            CreateRoom = 1,
+            JoinRoom = 2,
+            StartMatch = 3,
+            RecoverSession = 4,
+        }
+
         public event Action<LudoRoomSnapshot> RoomSnapshotReceived;
+        public event Action<LudoRoomSnapshot> MatchStartedReceived;
         public event Action<LudoChatMessage> ChatMessageReceived;
         public event Action<LudoTurnActionMessage> TurnActionReceived;
         public event Action<string> StatusChanged;
@@ -67,15 +80,25 @@ namespace PremiumLudo
 
         private string _serverBaseUrl = DefaultServerBaseUrl;
         private string _roomCode = string.Empty;
+        private string _roomId = string.Empty;
         private string _localPlayerName = "Player";
         private string _localColor = string.Empty;
+        private string _playerId = string.Empty;
         private bool _isHost;
         private bool _connected;
-        private bool _pollInFlight;
-        private float _nextPollAt;
         private long _lastRoomSequence;
         private long _lastChatSequence;
         private long _lastTurnSequence;
+        private long _lastStateVersion;
+        private PendingCommand _pendingCommand;
+        private CreateRoomRequest _pendingCreateRoomRequest;
+        private JoinRoomRequest _pendingJoinRoomRequest;
+        private RoomPlayerRequest _pendingStartRequest;
+        private RecoverSessionRequest _pendingRecoverRequest;
+        private LudoSocketIoClient _socketClient;
+        private float _pendingCommandDeadlineAt;
+        private float _slowConnectNoticeAt;
+        private bool _slowConnectNoticeSent;
 
         public string RoomCode
         {
@@ -84,7 +107,7 @@ namespace PremiumLudo
 
         public bool IsConnected
         {
-            get { return _connected; }
+            get { return _connected && _socketClient != null && _socketClient.IsConnected; }
         }
 
         public bool IsHost
@@ -102,9 +125,34 @@ namespace PremiumLudo
             get { return _localPlayerName; }
         }
 
+        public string LocalPlayerId
+        {
+            get { return _playerId; }
+        }
+
         public string ServerBaseUrl
         {
             get { return _serverBaseUrl; }
+        }
+
+        private void Awake()
+        {
+            EnsureSocketClient();
+        }
+
+        private void OnDestroy()
+        {
+            TearDownSocketClient();
+        }
+
+        private void Update()
+        {
+            if (_socketClient != null)
+            {
+                _socketClient.Update();
+            }
+
+            UpdatePendingCommandState();
         }
 
         public void ConfigureServer(string serverBaseUrl)
@@ -122,26 +170,23 @@ namespace PremiumLudo
                 return;
             }
 
-            ResetState();
+            ResetSessionState();
 
-            CreateRoomRequest request = new CreateRoomRequest
+            _localPlayerName = SanitizePlayerName(playerName);
+            _localColor = localColor.ToString();
+            _isHost = true;
+            _pendingCreateRoomRequest = new CreateRoomRequest
             {
-                PlayerName = SanitizePlayerName(playerName),
+                PlayerName = _localPlayerName,
                 PlayerCount = Mathf.Clamp(playerCount, 2, 4),
-                LocalColor = localColor.ToString(),
+                LocalColor = _localColor,
                 ActiveColors = BuildColorArray(activeColors),
             };
+            _pendingCommand = PendingCommand.CreateRoom;
+            BeginPendingCommandWindow();
 
-            _localPlayerName = request.PlayerName;
-            _localColor = request.LocalColor;
-            _isHost = true;
-            EmitStatus("Creating room...");
-            StartCoroutine(SendJsonRequest<LudoRoomOperationResponse>(
-                _serverBaseUrl + "/rooms/create",
-                UnityWebRequest.kHttpVerbPOST,
-                JsonUtility.ToJson(request),
-                HandleRoomOperationSuccess,
-                HandleRequestError));
+            EmitStatus("Connecting to lobby...");
+            ConnectOrDispatchPending();
         }
 
         public void JoinRoom(string roomCode, string playerName, LudoTokenColor preferredColor)
@@ -151,191 +196,451 @@ namespace PremiumLudo
                 return;
             }
 
-            ResetState();
-
-            JoinRoomRequest request = new JoinRoomRequest
-            {
-                RoomCode = string.IsNullOrWhiteSpace(roomCode) ? string.Empty : roomCode.Trim().ToUpperInvariant(),
-                PlayerName = SanitizePlayerName(playerName),
-                PreferredColor = preferredColor.ToString(),
-            };
-
-            if (string.IsNullOrEmpty(request.RoomCode))
+            string normalizedRoomCode = string.IsNullOrWhiteSpace(roomCode) ? string.Empty : roomCode.Trim().ToUpperInvariant();
+            if (string.IsNullOrEmpty(normalizedRoomCode))
             {
                 EmitError("Enter a room code to join.");
                 return;
             }
 
-            _localPlayerName = request.PlayerName;
-            _localColor = request.PreferredColor;
+            ResetSessionState();
+
+            _localPlayerName = SanitizePlayerName(playerName);
+            _localColor = preferredColor.ToString();
             _isHost = false;
-            EmitStatus("Joining room " + request.RoomCode + "...");
-            StartCoroutine(SendJsonRequest<LudoRoomOperationResponse>(
-                _serverBaseUrl + "/rooms/join",
-                UnityWebRequest.kHttpVerbPOST,
-                JsonUtility.ToJson(request),
-                HandleRoomOperationSuccess,
-                HandleRequestError));
+            _pendingJoinRoomRequest = new JoinRoomRequest
+            {
+                RoomCode = normalizedRoomCode,
+                PlayerName = _localPlayerName,
+                PreferredColor = _localColor,
+            };
+            _pendingCommand = PendingCommand.JoinRoom;
+            BeginPendingCommandWindow();
+
+            EmitStatus("Connecting to room " + normalizedRoomCode + "...");
+            ConnectOrDispatchPending();
         }
 
         public void StartMatch()
         {
-            if (!CanUseOnline() || string.IsNullOrEmpty(_roomCode))
+            if (!CanUseOnline() || string.IsNullOrEmpty(_roomCode) || string.IsNullOrEmpty(_playerId))
             {
                 return;
             }
 
-            EmitStatus("Starting match...");
-            StartRoomRequest request = new StartRoomRequest
+            _pendingStartRequest = new RoomPlayerRequest
             {
                 RoomCode = _roomCode,
+                PlayerId = _playerId,
             };
-
-            StartCoroutine(SendJsonRequest<LudoRoomOperationResponse>(
-                _serverBaseUrl + "/rooms/" + Escape(_roomCode) + "/start",
-                UnityWebRequest.kHttpVerbPOST,
-                JsonUtility.ToJson(request),
-                HandleRoomOperationSuccess,
-                HandleRequestError));
+            _pendingCommand = PendingCommand.StartMatch;
+            BeginPendingCommandWindow();
+            EmitStatus("Starting match...");
+            ConnectOrDispatchPending();
         }
 
         public void LeaveRoom()
         {
-            if (string.IsNullOrEmpty(_roomCode))
+            if (_socketClient != null && _socketClient.IsConnected && !string.IsNullOrEmpty(_roomCode) && !string.IsNullOrEmpty(_playerId))
             {
-                ResetState();
-                return;
+                RoomPlayerRequest request = new RoomPlayerRequest
+                {
+                    RoomCode = _roomCode,
+                    PlayerId = _playerId,
+                };
+                _socketClient.EmitJson("leaveRoom", JsonUtility.ToJson(request));
             }
 
-            if (!CanUseOnline())
+            ResetSessionState();
+            if (_socketClient != null)
             {
-                ResetState();
-                return;
+                _socketClient.Disconnect();
             }
-
-            LeaveRoomRequest request = new LeaveRoomRequest
-            {
-                PlayerName = _localPlayerName,
-                Color = _localColor,
-            };
-
-            StartCoroutine(SendJsonRequest<LudoRoomOperationResponse>(
-                _serverBaseUrl + "/rooms/" + Escape(_roomCode) + "/leave",
-                UnityWebRequest.kHttpVerbPOST,
-                JsonUtility.ToJson(request),
-                HandleLeaveSuccess,
-                _ => ResetState()));
+            EmitStatus("Offline");
         }
 
         public void SendChat(string sender, string message, LudoTokenColor color)
         {
-            if (!CanUseOnline() || string.IsNullOrEmpty(_roomCode) || string.IsNullOrWhiteSpace(message))
+            if (_socketClient == null || !_socketClient.IsConnected || string.IsNullOrEmpty(_roomCode) || string.IsNullOrEmpty(_playerId) || string.IsNullOrWhiteSpace(message))
             {
                 return;
             }
 
             ChatRequest request = new ChatRequest
             {
-                Sender = string.IsNullOrWhiteSpace(sender) ? _localPlayerName : sender.Trim(),
+                RoomCode = _roomCode,
+                PlayerId = _playerId,
+                Sender = string.IsNullOrWhiteSpace(sender) ? _localPlayerName : SanitizePlayerName(sender),
                 Message = message.Trim(),
                 Color = color.ToString(),
             };
-
-            StartCoroutine(SendJsonRequest<LudoRoomOperationResponse>(
-                _serverBaseUrl + "/rooms/" + Escape(_roomCode) + "/chat",
-                UnityWebRequest.kHttpVerbPOST,
-                JsonUtility.ToJson(request),
-                HandleRoomOperationSuccessSilently,
-                HandleRequestError));
+            _socketClient.EmitJson("sendChat", JsonUtility.ToJson(request));
         }
 
         public void SendTurnAction(LudoTurnActionMessage action)
         {
-            if (!CanUseOnline() || string.IsNullOrEmpty(_roomCode) || action == null)
+            if (_socketClient == null || !_socketClient.IsConnected || string.IsNullOrEmpty(_roomCode) || string.IsNullOrEmpty(_playerId) || action == null)
             {
                 return;
             }
 
+            action.PlayerId = _playerId;
+
             TurnRequest request = new TurnRequest
             {
+                RoomCode = _roomCode,
+                PlayerId = _playerId,
                 Color = action.Color,
                 Roll = action.Roll,
                 TokenIndex = action.TokenIndex,
                 NoMove = action.NoMove,
             };
-
-            StartCoroutine(SendJsonRequest<LudoRoomOperationResponse>(
-                _serverBaseUrl + "/rooms/" + Escape(_roomCode) + "/turn",
-                UnityWebRequest.kHttpVerbPOST,
-                JsonUtility.ToJson(request),
-                HandleRoomOperationSuccessSilently,
-                HandleRequestError));
+            _socketClient.EmitJson("playTurn", JsonUtility.ToJson(request));
         }
 
-        private void Update()
+        private void EnsureSocketClient()
         {
-            if (!_connected || _pollInFlight || string.IsNullOrEmpty(_roomCode) || Time.unscaledTime < _nextPollAt)
+            if (_socketClient != null)
             {
                 return;
             }
 
-            StartCoroutine(PollRoomState());
+            _socketClient = new LudoSocketIoClient();
+            _socketClient.Connected += OnSocketConnected;
+            _socketClient.Disconnected += OnSocketDisconnected;
+            _socketClient.EventReceived += OnSocketEventReceived;
+            _socketClient.ErrorReceived += OnSocketErrorReceived;
         }
 
-        private IEnumerator PollRoomState()
+        private void TearDownSocketClient()
         {
-            _pollInFlight = true;
-            string url = string.Format(
-                "{0}/rooms/{1}/poll?roomSequence={2}&chatSequence={3}&turnSequence={4}",
-                _serverBaseUrl,
-                Escape(_roomCode),
-                _lastRoomSequence,
-                _lastChatSequence,
-                _lastTurnSequence);
-
-            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            if (_socketClient == null)
             {
-                yield return request.SendWebRequest();
-                _pollInFlight = false;
-                _nextPollAt = Time.unscaledTime + PollIntervalSeconds;
+                return;
+            }
 
-                if (!RequestSucceeded(request))
+            _socketClient.Connected -= OnSocketConnected;
+            _socketClient.Disconnected -= OnSocketDisconnected;
+            _socketClient.EventReceived -= OnSocketEventReceived;
+            _socketClient.ErrorReceived -= OnSocketErrorReceived;
+            _socketClient.Dispose();
+            _socketClient = null;
+        }
+
+        private void ConnectOrDispatchPending()
+        {
+            EnsureSocketClient();
+            if (_socketClient == null)
+            {
+                return;
+            }
+
+            if (_socketClient.IsConnected)
+            {
+                DispatchPendingCommand();
+                return;
+            }
+
+            _socketClient.Connect(_serverBaseUrl, true);
+        }
+
+        private void OnSocketConnected()
+        {
+            _connected = true;
+            EmitStatus(string.IsNullOrEmpty(_roomCode) ? "Connected" : "Connected to " + _roomCode);
+            DispatchPendingCommand();
+        }
+
+        private void OnSocketDisconnected()
+        {
+            _connected = false;
+            if (_socketClient != null && _socketClient.WantsReconnect && (!string.IsNullOrEmpty(_roomCode) || _pendingCommand != PendingCommand.None))
+            {
+                EmitStatus("Reconnecting...");
+                if (!string.IsNullOrEmpty(_roomCode) && !string.IsNullOrEmpty(_playerId))
                 {
-                    EmitError(GetRequestError(request));
-                    yield break;
+                    _pendingRecoverRequest = new RecoverSessionRequest
+                    {
+                        RoomCode = _roomCode,
+                        PlayerId = _playerId,
+                    };
+                    _pendingCommand = PendingCommand.RecoverSession;
+                    BeginPendingCommandWindow();
                 }
-
-                LudoRoomPollResponse response = Deserialize<LudoRoomPollResponse>(request.downloadHandler.text);
-                if (response == null)
-                {
-                    EmitError("The room poll response could not be read.");
-                    yield break;
-                }
-
-                if (!response.Success)
-                {
-                    EmitError(string.IsNullOrEmpty(response.Error) ? "Polling the room failed." : response.Error);
-                    yield break;
-                }
-
-                ApplySnapshot(response.Snapshot);
-                DispatchChatMessages(response.ChatMessages);
-                DispatchTurnActions(response.TurnActions);
+            }
+            else
+            {
+                EmitStatus("Offline");
             }
         }
 
-        private void HandleRoomOperationSuccess(LudoRoomOperationResponse response)
+        private void OnSocketErrorReceived(string message)
+        {
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                EmitError(message);
+            }
+        }
+
+        private void OnSocketEventReceived(string eventName, string payloadJson)
+        {
+            switch (eventName)
+            {
+                case "roomCreated":
+                    HandleRoomCreated(Deserialize<LudoSocketRoomAck>(payloadJson));
+                    break;
+                case "playerJoined":
+                    HandlePlayerJoined(Deserialize<LudoSocketSeatEvent>(payloadJson));
+                    break;
+                case "playerLeft":
+                    HandlePlayerLeft(Deserialize<LudoSocketSeatEvent>(payloadJson));
+                    break;
+                case "gameStarted":
+                    HandleGameStarted(Deserialize<LudoSocketRoomAck>(payloadJson));
+                    break;
+                case "turnPlayed":
+                    HandleTurnPlayed(Deserialize<LudoSocketTurnEvent>(payloadJson));
+                    break;
+                case "chatMessage":
+                    HandleChatMessage(Deserialize<LudoSocketChatEvent>(payloadJson));
+                    break;
+                case "gameStateUpdate":
+                    HandleGameStateUpdate(Deserialize<LudoSocketGameStateEvent>(payloadJson));
+                    break;
+                case "errorMessage":
+                    HandleSocketErrorPayload(Deserialize<LudoSocketErrorEvent>(payloadJson));
+                    break;
+            }
+        }
+
+        private void DispatchPendingCommand()
+        {
+            if (_socketClient == null || !_socketClient.IsConnected)
+            {
+                return;
+            }
+
+            switch (_pendingCommand)
+            {
+                case PendingCommand.CreateRoom:
+                    if (_pendingCreateRoomRequest != null)
+                    {
+                        _socketClient.EmitJson("createRoom", JsonUtility.ToJson(_pendingCreateRoomRequest));
+                    }
+                    break;
+                case PendingCommand.JoinRoom:
+                    if (_pendingJoinRoomRequest != null)
+                    {
+                        _socketClient.EmitJson("joinRoom", JsonUtility.ToJson(_pendingJoinRoomRequest));
+                    }
+                    break;
+                case PendingCommand.StartMatch:
+                    if (_pendingStartRequest != null)
+                    {
+                        _socketClient.EmitJson("startGame", JsonUtility.ToJson(_pendingStartRequest));
+                    }
+                    break;
+                case PendingCommand.RecoverSession:
+                    if (_pendingRecoverRequest != null)
+                    {
+                        _socketClient.EmitJson("recoverSession", JsonUtility.ToJson(_pendingRecoverRequest));
+                    }
+                    break;
+            }
+        }
+
+        private void HandleRoomCreated(LudoSocketRoomAck response)
+        {
+            if (!HandleAckErrors(response))
+            {
+                return;
+            }
+
+            _isHost = true;
+            CompleteRoomAcknowledgement(response);
+            EmitStatus("Room ready");
+        }
+
+        private void HandlePlayerJoined(LudoSocketSeatEvent response)
         {
             if (response == null)
             {
-                EmitError("The server returned an empty response.");
                 return;
+            }
+
+            if (!response.Success && !string.IsNullOrWhiteSpace(response.Error))
+            {
+                EmitError(response.Error);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_playerId) && !string.IsNullOrWhiteSpace(response.PlayerId))
+            {
+                _playerId = response.PlayerId;
+            }
+
+            if ((_pendingCommand == PendingCommand.JoinRoom || _pendingCommand == PendingCommand.RecoverSession || string.IsNullOrEmpty(_localColor)) && !string.IsNullOrWhiteSpace(response.AssignedColor))
+            {
+                _localColor = response.AssignedColor;
+            }
+
+            if (response.Snapshot != null)
+            {
+                ApplySnapshot(response.Snapshot);
+            }
+
+            _pendingJoinRoomRequest = null;
+            if (_pendingCommand == PendingCommand.JoinRoom)
+            {
+                _pendingCommand = PendingCommand.None;
+                ResetPendingCommandWindow();
+            }
+        }
+
+        private void HandlePlayerLeft(LudoSocketSeatEvent response)
+        {
+            if (response != null && response.Snapshot != null)
+            {
+                ApplySnapshot(response.Snapshot);
+            }
+        }
+
+        private void HandleGameStarted(LudoSocketRoomAck response)
+        {
+            if (!HandleAckErrors(response))
+            {
+                return;
+            }
+
+            _pendingStartRequest = null;
+            if (_pendingCommand == PendingCommand.StartMatch)
+            {
+                _pendingCommand = PendingCommand.None;
+                ResetPendingCommandWindow();
+            }
+
+            if (response.Snapshot != null)
+            {
+                ApplySnapshot(response.Snapshot);
+                EmitMatchStarted(response.Snapshot);
+            }
+
+            EmitStatus("Match live");
+        }
+
+        private void HandleTurnPlayed(LudoSocketTurnEvent response)
+        {
+            if (response == null || response.Action == null)
+            {
+                return;
+            }
+
+            LudoTurnActionMessage action = response.Action;
+            if (action.Sequence > 0 && action.Sequence <= _lastTurnSequence)
+            {
+                return;
+            }
+
+            _lastTurnSequence = Math.Max(_lastTurnSequence, action.Sequence);
+            _lastStateVersion = Math.Max(_lastStateVersion, action.StateVersion);
+
+            if (!string.IsNullOrEmpty(action.PlayerId) && string.Equals(action.PlayerId, _playerId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            Action<LudoTurnActionMessage> handler = TurnActionReceived;
+            if (handler != null)
+            {
+                handler(action);
+            }
+        }
+
+        private void HandleChatMessage(LudoSocketChatEvent response)
+        {
+            if (response == null || response.Message == null)
+            {
+                return;
+            }
+
+            LudoChatMessage message = response.Message;
+            if (message.Sequence > 0 && message.Sequence <= _lastChatSequence)
+            {
+                return;
+            }
+
+            _lastChatSequence = Math.Max(_lastChatSequence, message.Sequence);
+            Action<LudoChatMessage> handler = ChatMessageReceived;
+            if (handler != null)
+            {
+                handler(message);
+            }
+        }
+
+        private void HandleGameStateUpdate(LudoSocketGameStateEvent response)
+        {
+            if (response != null && response.Snapshot != null)
+            {
+                if (_pendingCommand == PendingCommand.RecoverSession)
+                {
+                    _pendingRecoverRequest = null;
+                    _pendingCommand = PendingCommand.None;
+                    ResetPendingCommandWindow();
+                    EmitStatus(response.Snapshot.Started ? "Recovered match" : "Recovered lobby");
+                }
+
+                ApplySnapshot(response.Snapshot);
+                if (response.Snapshot.Started)
+                {
+                    EmitMatchStarted(response.Snapshot);
+                }
+            }
+        }
+
+        private void HandleSocketErrorPayload(LudoSocketErrorEvent response)
+        {
+            if (response != null && !string.IsNullOrWhiteSpace(response.Error))
+            {
+                if (_pendingCommand == PendingCommand.CreateRoom || _pendingCommand == PendingCommand.JoinRoom || _pendingCommand == PendingCommand.StartMatch)
+                {
+                    _pendingCommand = PendingCommand.None;
+                    ResetPendingCommandWindow();
+                }
+
+                EmitError(response.Error);
+            }
+        }
+
+        private bool HandleAckErrors(LudoSocketRoomAck response)
+        {
+            if (response == null)
+            {
+                _pendingCommand = PendingCommand.None;
+                EmitError("The server returned an empty response.");
+                return false;
             }
 
             if (!response.Success)
             {
-                EmitError(string.IsNullOrEmpty(response.Error) ? "The server rejected the request." : response.Error);
+                _pendingCommand = PendingCommand.None;
+                ResetPendingCommandWindow();
+                EmitError(string.IsNullOrWhiteSpace(response.Error) ? "The server rejected the request." : response.Error);
+                return false;
+            }
+
+            return true;
+        }
+
+        private void CompleteRoomAcknowledgement(LudoSocketRoomAck response)
+        {
+            if (response == null)
+            {
                 return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(response.PlayerId))
+            {
+                _playerId = response.PlayerId;
             }
 
             if (!string.IsNullOrWhiteSpace(response.AssignedColor))
@@ -343,25 +648,19 @@ namespace PremiumLudo
                 _localColor = response.AssignedColor;
             }
 
-            ApplySnapshot(response.Snapshot);
-        }
-
-        private void HandleRoomOperationSuccessSilently(LudoRoomOperationResponse response)
-        {
-            if (response != null && response.Success)
+            _pendingCreateRoomRequest = null;
+            _pendingJoinRoomRequest = null;
+            _pendingRecoverRequest = null;
+            if (_pendingCommand == PendingCommand.CreateRoom || _pendingCommand == PendingCommand.JoinRoom || _pendingCommand == PendingCommand.RecoverSession)
             {
-                if (!string.IsNullOrWhiteSpace(response.AssignedColor))
-                {
-                    _localColor = response.AssignedColor;
-                }
+                _pendingCommand = PendingCommand.None;
+                ResetPendingCommandWindow();
+            }
 
+            if (response.Snapshot != null)
+            {
                 ApplySnapshot(response.Snapshot);
             }
-        }
-
-        private void HandleLeaveSuccess(LudoRoomOperationResponse response)
-        {
-            ResetState();
         }
 
         private void ApplySnapshot(LudoRoomSnapshot snapshot)
@@ -371,14 +670,19 @@ namespace PremiumLudo
                 return;
             }
 
-            _roomCode = string.IsNullOrWhiteSpace(snapshot.RoomCode) ? _roomCode : snapshot.RoomCode.Trim().ToUpperInvariant();
-            _connected = true;
-            _nextPollAt = Time.unscaledTime + PollIntervalSeconds;
-
-            if (snapshot.RoomSequence > _lastRoomSequence)
+            bool isStaleRoom = snapshot.RoomSequence > 0 && snapshot.RoomSequence < _lastRoomSequence;
+            bool isStaleState = snapshot.StateVersion > 0 && snapshot.StateVersion < _lastStateVersion;
+            if (isStaleRoom && isStaleState)
             {
-                _lastRoomSequence = snapshot.RoomSequence;
+                return;
             }
+
+            _roomCode = string.IsNullOrWhiteSpace(snapshot.RoomCode) ? _roomCode : snapshot.RoomCode.Trim().ToUpperInvariant();
+            _roomId = string.IsNullOrWhiteSpace(snapshot.RoomId) ? _roomId : snapshot.RoomId;
+            _connected = true;
+            _lastRoomSequence = Math.Max(_lastRoomSequence, snapshot.RoomSequence);
+            _lastStateVersion = Math.Max(_lastStateVersion, snapshot.StateVersion);
+            ResetPendingCommandWindow();
 
             Action<LudoRoomSnapshot> handler = RoomSnapshotReceived;
             if (handler != null)
@@ -387,92 +691,6 @@ namespace PremiumLudo
             }
 
             EmitStatus(snapshot.Started ? "Match live" : "Room ready");
-        }
-
-        private void DispatchChatMessages(LudoChatMessage[] messages)
-        {
-            if (messages == null)
-            {
-                return;
-            }
-
-            Action<LudoChatMessage> handler = ChatMessageReceived;
-            for (int i = 0; i < messages.Length; i++)
-            {
-                if (messages[i] == null)
-                {
-                    continue;
-                }
-
-                _lastChatSequence = Math.Max(_lastChatSequence, messages[i].Sequence);
-                if (handler != null)
-                {
-                    handler(messages[i]);
-                }
-            }
-        }
-
-        private void DispatchTurnActions(LudoTurnActionMessage[] actions)
-        {
-            if (actions == null)
-            {
-                return;
-            }
-
-            Action<LudoTurnActionMessage> handler = TurnActionReceived;
-            for (int i = 0; i < actions.Length; i++)
-            {
-                if (actions[i] == null)
-                {
-                    continue;
-                }
-
-                _lastTurnSequence = Math.Max(_lastTurnSequence, actions[i].Sequence);
-                if (handler != null)
-                {
-                    handler(actions[i]);
-                }
-            }
-        }
-
-        private IEnumerator SendJsonRequest<TResponse>(string url, string method, string jsonBody, Action<TResponse> onSuccess, Action<string> onError) where TResponse : class
-        {
-            byte[] body = Encoding.UTF8.GetBytes(string.IsNullOrEmpty(jsonBody) ? "{}" : jsonBody);
-            using (UnityWebRequest request = new UnityWebRequest(url, method))
-            {
-                request.uploadHandler = new UploadHandlerRaw(body);
-                request.downloadHandler = new DownloadHandlerBuffer();
-                request.SetRequestHeader("Content-Type", "application/json");
-                request.timeout = 15;
-
-                yield return request.SendWebRequest();
-
-                if (!RequestSucceeded(request))
-                {
-                    if (onError != null)
-                    {
-                        onError(GetRequestError(request));
-                    }
-
-                    yield break;
-                }
-
-                TResponse response = Deserialize<TResponse>(request.downloadHandler.text);
-                if (response == null)
-                {
-                    if (onError != null)
-                    {
-                        onError("The server response could not be read.");
-                    }
-
-                    yield break;
-                }
-
-                if (onSuccess != null)
-                {
-                    onSuccess(response);
-                }
-            }
         }
 
         private bool CanUseOnline()
@@ -486,24 +704,69 @@ namespace PremiumLudo
             return true;
         }
 
-        private void HandleRequestError(string message)
-        {
-            EmitError(message);
-        }
-
-        private void ResetState()
+        private void ResetSessionState()
         {
             _roomCode = string.Empty;
-            _localPlayerName = "Player";
-            _localColor = string.Empty;
-            _isHost = false;
+            _roomId = string.Empty;
+            _playerId = string.Empty;
             _connected = false;
-            _pollInFlight = false;
+            _isHost = false;
             _lastRoomSequence = 0L;
             _lastChatSequence = 0L;
             _lastTurnSequence = 0L;
-            _nextPollAt = 0f;
-            EmitStatus("Offline");
+            _lastStateVersion = 0L;
+            _pendingCommand = PendingCommand.None;
+            _pendingCreateRoomRequest = null;
+            _pendingJoinRoomRequest = null;
+            _pendingStartRequest = null;
+            _pendingRecoverRequest = null;
+            ResetPendingCommandWindow();
+        }
+
+        private void BeginPendingCommandWindow()
+        {
+            _pendingCommandDeadlineAt = Time.unscaledTime + PendingCommandTimeoutSeconds;
+            _slowConnectNoticeAt = Time.unscaledTime + SlowConnectNoticeSeconds;
+            _slowConnectNoticeSent = false;
+        }
+
+        private void ResetPendingCommandWindow()
+        {
+            _pendingCommandDeadlineAt = 0f;
+            _slowConnectNoticeAt = 0f;
+            _slowConnectNoticeSent = false;
+        }
+
+        private void UpdatePendingCommandState()
+        {
+            if (_pendingCommand == PendingCommand.None)
+            {
+                return;
+            }
+
+            if (!_slowConnectNoticeSent && _slowConnectNoticeAt > 0f && Time.unscaledTime >= _slowConnectNoticeAt)
+            {
+                _slowConnectNoticeSent = true;
+                EmitStatus("Waking server...");
+            }
+
+            if (_pendingCommandDeadlineAt > 0f && Time.unscaledTime >= _pendingCommandDeadlineAt)
+            {
+                PendingCommand expiredCommand = _pendingCommand;
+                _pendingCommand = PendingCommand.None;
+                _pendingCreateRoomRequest = null;
+                _pendingJoinRoomRequest = null;
+                _pendingStartRequest = null;
+                _pendingRecoverRequest = null;
+                if (_socketClient != null && !_socketClient.IsConnected)
+                {
+                    _socketClient.Disconnect();
+                }
+                ResetPendingCommandWindow();
+                EmitError(expiredCommand == PendingCommand.StartMatch
+                    ? "Starting the online match took too long. The server may be asleep or unavailable."
+                    : "Connecting to the online room took too long. If Render is waking up, wait a few seconds and try again.");
+            }
         }
 
         private static string SanitizePlayerName(string playerName)
@@ -521,7 +784,7 @@ namespace PremiumLudo
         {
             if (colors == null || colors.Count == 0)
             {
-                return new[] { LudoTokenColor.Blue.ToString(), LudoTokenColor.Red.ToString() };
+                return new[] { LudoTokenColor.Red.ToString(), LudoTokenColor.Blue.ToString() };
             }
 
             string[] values = new string[colors.Count];
@@ -550,38 +813,12 @@ namespace PremiumLudo
             }
         }
 
-        private static bool RequestSucceeded(UnityWebRequest request)
-        {
-            return request != null && request.result != UnityWebRequest.Result.ConnectionError && request.result != UnityWebRequest.Result.ProtocolError && request.result != UnityWebRequest.Result.DataProcessingError;
-        }
-
-        private static string GetRequestError(UnityWebRequest request)
-        {
-            if (request == null)
-            {
-                return "The online request failed.";
-            }
-
-            string responseText = request.downloadHandler != null ? request.downloadHandler.text : string.Empty;
-            if (!string.IsNullOrWhiteSpace(responseText))
-            {
-                return responseText;
-            }
-
-            return string.IsNullOrWhiteSpace(request.error) ? "The online request failed." : request.error;
-        }
-
-        private static string Escape(string value)
-        {
-            return UnityWebRequest.EscapeURL(value ?? string.Empty);
-        }
-
         private void EmitStatus(string status)
         {
             Action<string> handler = StatusChanged;
             if (handler != null)
             {
-                handler(status);
+                handler(status ?? string.Empty);
             }
         }
 
@@ -590,10 +827,17 @@ namespace PremiumLudo
             Action<string> handler = ErrorReceived;
             if (handler != null)
             {
-                handler(message);
+                handler(message ?? "Unknown online error.");
             }
+        }
 
-            EmitStatus(message);
+        private void EmitMatchStarted(LudoRoomSnapshot snapshot)
+        {
+            Action<LudoRoomSnapshot> handler = MatchStartedReceived;
+            if (handler != null)
+            {
+                handler(snapshot);
+            }
         }
     }
 }

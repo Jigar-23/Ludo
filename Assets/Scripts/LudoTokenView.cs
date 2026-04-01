@@ -74,7 +74,7 @@ namespace PremiumLudo
             _tokenImage.sprite = tokenSprite;
             _tokenImage.color = Color.white;
             _tokenImage.preserveAspect = true;
-            _tokenImage.useSpriteMesh = true;
+            _tokenImage.useSpriteMesh = false;
             _tokenImage.raycastTarget = false;
 
             _canvasGroup = LudoUtility.GetOrAddComponent<CanvasGroup>(gameObject);

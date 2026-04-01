@@ -34,8 +34,14 @@ namespace PremiumLudo
             Application.targetFrameRate = 60;
             QualitySettings.vSyncCount = 0;
             Input.multiTouchEnabled = true;
+            Screen.sleepTimeout = SleepTimeout.NeverSleep;
             AudioListener.pause = false;
             AudioListener.volume = 1f;
+
+            if (Application.platform == RuntimePlatform.WebGLPlayer)
+            {
+                QualitySettings.SetQualityLevel(1, true);
+            }
 
             EnsureCamera();
             Canvas canvas = EnsureCanvas();

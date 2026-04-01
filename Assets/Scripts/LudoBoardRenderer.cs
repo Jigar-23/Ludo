@@ -125,7 +125,7 @@ namespace PremiumLudo
             return boardOffset + new Vector2(left + ((clampedX + 0.5f) * _cellWidth), bottom + ((clampedY + 0.5f) * _cellHeight));
         }
 
-        private void Update()
+        private void OnRectTransformDimensionsChange()
         {
             if (_layerRect == null)
             {
@@ -149,7 +149,7 @@ namespace PremiumLudo
             _backgroundRoot = LudoUtility.CreateUIObject("BackgroundRoot", _layerRect);
             LudoUtility.Stretch(_backgroundRoot);
 
-            _backdropImage = LudoUtility.CreateImage("Backdrop", _backgroundRoot, LudoSpriteFactory.BackdropGradient, new Color(0.18f, 0.41f, 0.93f, 1f));
+            _backdropImage = LudoUtility.CreateImage("Backdrop", _backgroundRoot, LudoSpriteFactory.BackdropGradient, new Color(0.20f, 0.38f, 0.84f, 1f));
             LudoUtility.Stretch(_backdropImage.rectTransform);
             _backdropImage.raycastTarget = false;
 
@@ -158,7 +158,7 @@ namespace PremiumLudo
 
             for (int i = 0; i < _patternImages.Length; i++)
             {
-                Image pattern = LudoUtility.CreateImage("Pattern" + i, _patternLayer, null, new Color(0.84f, 0.93f, 1f, i < 2 ? 0.14f : 0.09f));
+                Image pattern = LudoUtility.CreateImage("Pattern" + i, _patternLayer, null, new Color(0.92f, 0.96f, 1f, i < 2 ? 0.05f : 0.03f));
                 pattern.preserveAspect = true;
                 pattern.raycastTarget = false;
                 _patternImages[i] = pattern;
@@ -166,7 +166,7 @@ namespace PremiumLudo
 
             for (int i = 0; i < _glowImages.Length; i++)
             {
-                Image glow = LudoUtility.CreateImage("Glow" + i, _backgroundRoot, LudoSpriteFactory.SoftDisc, i == 0 ? new Color(0.30f, 0.63f, 1f, 0.20f) : new Color(0.14f, 0.30f, 0.76f, 0.28f));
+                Image glow = LudoUtility.CreateImage("Glow" + i, _backgroundRoot, LudoSpriteFactory.SoftDisc, i == 0 ? new Color(0.30f, 0.63f, 1f, 0.10f) : new Color(0.14f, 0.30f, 0.76f, 0.16f));
                 glow.raycastTarget = false;
                 _glowImages[i] = glow;
             }

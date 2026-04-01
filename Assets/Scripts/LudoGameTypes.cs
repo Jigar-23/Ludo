@@ -199,6 +199,7 @@ namespace PremiumLudo
     [Serializable]
     public sealed class LudoChatMessage
     {
+        public string PlayerId;
         public string Sender;
         public string Message;
         public string Color;
@@ -209,16 +210,26 @@ namespace PremiumLudo
     [Serializable]
     public sealed class LudoTurnActionMessage
     {
+        public string PlayerId;
         public string Color;
         public int Roll;
         public int TokenIndex;
         public bool NoMove;
         public long Sequence;
+        public long StateVersion;
+        public string NextTurnColor;
+        public string WinnerColor;
+        public bool BonusTurn;
+        public bool Captured;
+        public string CapturedColor;
+        public int CapturedTokenIndex;
+        public bool Completed;
     }
 
     [Serializable]
     public sealed class LudoOnlineSeatState
     {
+        public string PlayerId;
         public string Color;
         public string DisplayName;
         public bool IsHost;
@@ -226,14 +237,26 @@ namespace PremiumLudo
     }
 
     [Serializable]
+    public sealed class LudoTokenProgressState
+    {
+        public string Color;
+        public int[] Progress;
+    }
+
+    [Serializable]
     public sealed class LudoRoomSnapshot
     {
         public string RoomCode;
+        public string RoomId;
         public int PlayerCount;
         public string[] ActiveColors;
         public LudoOnlineSeatState[] Seats;
         public bool Started;
         public long RoomSequence;
+        public long StateVersion;
+        public string CurrentTurnColor;
+        public string WinnerColor;
+        public LudoTokenProgressState[] TokenStates;
     }
 
     [Serializable]
@@ -242,6 +265,7 @@ namespace PremiumLudo
         public bool Success;
         public string Error;
         public string AssignedColor;
+        public string PlayerId;
         public LudoRoomSnapshot Snapshot;
     }
 
@@ -253,5 +277,57 @@ namespace PremiumLudo
         public LudoRoomSnapshot Snapshot;
         public LudoChatMessage[] ChatMessages;
         public LudoTurnActionMessage[] TurnActions;
+    }
+
+    [Serializable]
+    public sealed class LudoSocketRoomAck
+    {
+        public bool Success;
+        public string Error;
+        public string PlayerId;
+        public string AssignedColor;
+        public LudoRoomSnapshot Snapshot;
+    }
+
+    [Serializable]
+    public sealed class LudoSocketSeatEvent
+    {
+        public bool Success;
+        public string Error;
+        public string PlayerId;
+        public string AssignedColor;
+        public string RoomCode;
+        public long RoomSequence;
+        public int PlayerCount;
+        public string[] ActiveColors;
+        public LudoOnlineSeatState Seat;
+        public string Color;
+        public bool Connected;
+        public LudoRoomSnapshot Snapshot;
+    }
+
+    [Serializable]
+    public sealed class LudoSocketChatEvent
+    {
+        public LudoChatMessage Message;
+    }
+
+    [Serializable]
+    public sealed class LudoSocketTurnEvent
+    {
+        public LudoTurnActionMessage Action;
+    }
+
+    [Serializable]
+    public sealed class LudoSocketGameStateEvent
+    {
+        public LudoRoomSnapshot Snapshot;
+    }
+
+    [Serializable]
+    public sealed class LudoSocketErrorEvent
+    {
+        public string Code;
+        public string Error;
     }
 }

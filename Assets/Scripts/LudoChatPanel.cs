@@ -6,6 +6,16 @@ namespace PremiumLudo
 {
     public sealed class LudoChatPanel : MonoBehaviour
     {
+        private sealed class MessageView
+        {
+            public RectTransform Root;
+            public Image Fill;
+            public Outline Outline;
+            public Text SenderText;
+            public Text BodyText;
+            public LayoutElement BodyLayout;
+        }
+
         private const float Margin = 24f;
 
         private RectTransform _parentRect;
@@ -24,6 +34,8 @@ namespace PremiumLudo
         private Vector2 _lastParentSize;
         private bool _visible;
         private bool _minimized = true;
+        private int _activeMessageCount;
+        private readonly System.Collections.Generic.List<MessageView> _messagePool = new System.Collections.Generic.List<MessageView>(16);
 
         public void Build(RectTransform parent, Action<string> sendRequested)
         {
@@ -62,9 +74,13 @@ namespace PremiumLudo
                 return;
             }
 
-            for (int i = _contentRect.childCount - 1; i >= 0; i--)
+            _activeMessageCount = 0;
+            for (int i = 0; i < _messagePool.Count; i++)
             {
-                Destroy(_contentRect.GetChild(i).gameObject);
+                if (_messagePool[i] != null && _messagePool[i].Root != null)
+                {
+                    _messagePool[i].Root.gameObject.SetActive(false);
+                }
             }
         }
 
@@ -75,15 +91,39 @@ namespace PremiumLudo
                 return;
             }
 
+            MessageView bubble = GetOrCreateMessageView();
+            bubble.Root.gameObject.SetActive(true);
+            bubble.Root.SetSiblingIndex(_activeMessageCount);
+            bubble.Fill.color = emphasize ? new Color(0.20f, 0.42f, 0.92f, 0.94f) : new Color(1f, 1f, 1f, 0.93f);
+            bubble.Outline.effectColor = LudoUtility.WithAlpha(accentColor, emphasize ? 0.42f : 0.18f);
+            bubble.SenderText.text = string.IsNullOrWhiteSpace(sender) ? "Player" : sender;
+            bubble.SenderText.color = emphasize ? Color.white : accentColor;
+            bubble.BodyText.text = message.Trim();
+            bubble.BodyText.color = emphasize ? new Color(0.98f, 0.99f, 1f, 1f) : new Color(0.21f, 0.24f, 0.30f, 1f);
+            bubble.BodyLayout.preferredHeight = Mathf.Max(26f, bubble.BodyText.preferredHeight);
+            _activeMessageCount += 1;
+
+            Canvas.ForceUpdateCanvases();
+            if (_scrollRect != null)
+            {
+                _scrollRect.verticalNormalizedPosition = 0f;
+            }
+        }
+
+        private MessageView GetOrCreateMessageView()
+        {
+            if (_activeMessageCount < _messagePool.Count && _messagePool[_activeMessageCount] != null)
+            {
+                return _messagePool[_activeMessageCount];
+            }
+
             RectTransform bubble = LudoUtility.CreateUIObject("Message", _contentRect);
             Image bubbleFill = LudoUtility.GetOrAddComponent<Image>(bubble.gameObject);
-            bubbleFill.sprite = LudoSpriteFactory.RoundedGradient;
-            bubbleFill.color = emphasize ? new Color(0.20f, 0.42f, 0.92f, 0.94f) : new Color(1f, 1f, 1f, 0.93f);
+            LudoUtility.ApplySprite(bubbleFill, LudoSpriteFactory.RoundedMask);
             bubbleFill.raycastTarget = false;
 
             Outline outline = LudoUtility.GetOrAddComponent<Outline>(bubble.gameObject);
             outline.effectDistance = new Vector2(1f, -1f);
-            outline.effectColor = LudoUtility.WithAlpha(accentColor, emphasize ? 0.42f : 0.18f);
             outline.useGraphicAlpha = true;
 
             VerticalLayoutGroup bubbleLayout = LudoUtility.GetOrAddComponent<VerticalLayoutGroup>(bubble.gameObject);
@@ -104,38 +144,35 @@ namespace PremiumLudo
             layoutElement.preferredWidth = 0f;
             layoutElement.flexibleWidth = 1f;
 
-            Text senderText = LudoUtility.CreateText("Sender", bubble, string.IsNullOrWhiteSpace(sender) ? "Player" : sender, 18, FontStyle.Bold, TextAnchor.MiddleLeft, emphasize ? Color.white : accentColor);
+            Text senderText = LudoUtility.CreateText("Sender", bubble, "Player", 18, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
             senderText.raycastTarget = false;
             senderText.horizontalOverflow = HorizontalWrapMode.Wrap;
             senderText.verticalOverflow = VerticalWrapMode.Overflow;
 
-            Text messageText = LudoUtility.CreateText("Body", bubble, message.Trim(), 18, FontStyle.Normal, TextAnchor.UpperLeft, emphasize ? new Color(0.98f, 0.99f, 1f, 1f) : new Color(0.21f, 0.24f, 0.30f, 1f));
+            Text messageText = LudoUtility.CreateText("Body", bubble, string.Empty, 18, FontStyle.Normal, TextAnchor.UpperLeft, Color.white);
             messageText.raycastTarget = false;
             messageText.horizontalOverflow = HorizontalWrapMode.Wrap;
             messageText.verticalOverflow = VerticalWrapMode.Overflow;
 
             LayoutElement messageLayout = LudoUtility.GetOrAddComponent<LayoutElement>(messageText.gameObject);
-            messageLayout.preferredHeight = Mathf.Max(26f, messageText.preferredHeight);
+            messageLayout.preferredHeight = 26f;
 
-            Canvas.ForceUpdateCanvases();
-            if (_scrollRect != null)
+            MessageView view = new MessageView
             {
-                _scrollRect.verticalNormalizedPosition = 0f;
-            }
+                Root = bubble,
+                Fill = bubbleFill,
+                Outline = outline,
+                SenderText = senderText,
+                BodyText = messageText,
+                BodyLayout = messageLayout,
+            };
+            _messagePool.Add(view);
+            return view;
         }
 
-        private void Update()
+        private void OnRectTransformDimensionsChange()
         {
-            if (_parentRect == null || _rootRect == null)
-            {
-                return;
-            }
-
-            Vector2 parentSize = _parentRect.rect.size;
-            if ((parentSize - _lastParentSize).sqrMagnitude > 0.5f)
-            {
-                RefreshLayout();
-            }
+            RefreshLayoutIfNeeded();
         }
 
         private void BuildIfNeeded()
@@ -158,7 +195,7 @@ namespace PremiumLudo
             _windowRect.anchorMin = _windowRect.anchorMax = _windowRect.pivot = new Vector2(1f, 0f);
 
             Image windowFill = LudoUtility.GetOrAddComponent<Image>(_windowRect.gameObject);
-            windowFill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(windowFill, LudoSpriteFactory.RoundedMask);
             windowFill.color = new Color(0.98f, 0.98f, 1f, 0.98f);
             windowFill.raycastTarget = true;
 
@@ -199,7 +236,7 @@ namespace PremiumLudo
             scrollLayout.preferredHeight = 220f;
 
             Image scrollFill = LudoUtility.GetOrAddComponent<Image>(scrollRoot.gameObject);
-            scrollFill.sprite = LudoSpriteFactory.RoundedMask;
+            LudoUtility.ApplySprite(scrollFill, LudoSpriteFactory.RoundedMask);
             scrollFill.color = new Color(0.90f, 0.93f, 1f, 0.48f);
             scrollFill.raycastTarget = true;
 
@@ -263,9 +300,12 @@ namespace PremiumLudo
             _toggleRect = LudoUtility.CreateUIObject("Toggle", _rootRect);
             _toggleRect.anchorMin = _toggleRect.anchorMax = _toggleRect.pivot = new Vector2(1f, 0f);
             Image toggleFill = LudoUtility.GetOrAddComponent<Image>(_toggleRect.gameObject);
-            toggleFill.sprite = LudoSpriteFactory.RoundedGradient;
-            toggleFill.color = new Color(0.19f, 0.41f, 0.90f, 0.98f);
+            LudoUtility.ApplySprite(toggleFill, LudoSpriteFactory.RoundedMask);
+            toggleFill.color = new Color(0.21f, 0.30f, 0.54f, 0.98f);
             toggleFill.raycastTarget = true;
+            Image toggleAccent = LudoUtility.CreateImage("Accent", _toggleRect, LudoSpriteFactory.RoundedGloss, new Color(1f, 1f, 1f, 0.14f));
+            LudoUtility.Stretch(toggleAccent.rectTransform, 1.5f, 1.5f, 1.5f, 1.5f);
+            toggleAccent.raycastTarget = false;
             Outline toggleOutline = LudoUtility.GetOrAddComponent<Outline>(_toggleRect.gameObject);
             toggleOutline.effectColor = new Color(1f, 0.84f, 0.36f, 0.36f);
             toggleOutline.effectDistance = new Vector2(1f, -1f);
@@ -273,12 +313,28 @@ namespace PremiumLudo
 
             _toggleButton = LudoUtility.GetOrAddComponent<Button>(_toggleRect.gameObject);
             _toggleButton.onClick.AddListener(() => SetMinimized(false));
+            LudoButtonFeedback toggleFeedback = LudoUtility.GetOrAddComponent<LudoButtonFeedback>(_toggleButton.gameObject);
+            toggleFeedback.Configure(toggleAccent, 1.01f, 0.982f, 0.18f, 0.22f);
             _toggleText = LudoUtility.CreateText("Label", _toggleRect, "Chat", 22, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
             LudoUtility.Stretch(_toggleText.rectTransform);
             _toggleText.raycastTarget = false;
 
             RefreshLayout();
             RefreshVisibility();
+        }
+
+        private void RefreshLayoutIfNeeded()
+        {
+            if (_parentRect == null || _rootRect == null)
+            {
+                return;
+            }
+
+            Vector2 parentSize = _parentRect.rect.size;
+            if ((parentSize - _lastParentSize).sqrMagnitude > 0.5f)
+            {
+                RefreshLayout();
+            }
         }
 
         private void RefreshVisibility()
@@ -357,13 +413,13 @@ namespace PremiumLudo
         {
             RectTransform root = LudoUtility.CreateUIObject(label + "Button", parent);
             Image fill = LudoUtility.GetOrAddComponent<Image>(root.gameObject);
-            fill.sprite = LudoSpriteFactory.RoundedGradient;
-            fill.color = new Color(0.18f, 0.40f, 0.90f, 1f);
+            LudoUtility.ApplySprite(fill, LudoSpriteFactory.RoundedMask);
+            fill.color = new Color(0.21f, 0.30f, 0.54f, 1f);
             fill.raycastTarget = true;
 
-            Image gloss = LudoUtility.CreateImage("Gloss", root, LudoSpriteFactory.RoundedGloss, new Color(1f, 1f, 1f, 0.18f));
-            LudoUtility.Stretch(gloss.rectTransform);
-            gloss.raycastTarget = false;
+            Image accent = LudoUtility.CreateImage("Accent", root, LudoSpriteFactory.RoundedGloss, new Color(1f, 1f, 1f, 0.16f));
+            LudoUtility.Stretch(accent.rectTransform);
+            accent.raycastTarget = false;
 
             Button button = LudoUtility.GetOrAddComponent<Button>(root.gameObject);
             button.onClick.AddListener(() =>
@@ -378,6 +434,9 @@ namespace PremiumLudo
             LudoUtility.Stretch(text.rectTransform);
             text.raycastTarget = false;
 
+            LudoButtonFeedback feedback = LudoUtility.GetOrAddComponent<LudoButtonFeedback>(button.gameObject);
+            feedback.Configure(accent, 1.01f, 0.982f, 0.18f, 0.24f);
+
             return button;
         }
 
@@ -385,7 +444,7 @@ namespace PremiumLudo
         {
             RectTransform root = LudoUtility.CreateUIObject("InputField", parent);
             Image fill = LudoUtility.GetOrAddComponent<Image>(root.gameObject);
-            fill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(fill, LudoSpriteFactory.RoundedMask);
             fill.color = new Color(1f, 1f, 1f, 0.97f);
             fill.raycastTarget = true;
 

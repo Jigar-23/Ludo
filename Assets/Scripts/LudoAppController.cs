@@ -59,16 +59,16 @@ namespace PremiumLudo
         };
 
         private static readonly Color AppPanelColor = new Color(1f, 0.985f, 0.965f, 0.96f);
-        private static readonly Color AppPanelChromeColor = new Color(1f, 1f, 1f, 0.22f);
-        private static readonly Color AppPanelInnerShadowColor = new Color(0.17f, 0.12f, 0.10f, 0.12f);
-        private static readonly Color AppPanelShadowColor = new Color(0.12f, 0.10f, 0.08f, 0.18f);
-        private static readonly Color AppSectionFillColor = new Color(1f, 1f, 1f, 0.66f);
-        private static readonly Color AppSectionShadowColor = new Color(0.13f, 0.11f, 0.08f, 0.08f);
-        private static readonly Color AppButtonFillColor = new Color(1f, 0.985f, 0.965f, 0.97f);
-        private static readonly Color AppButtonShadowColor = new Color(0.13f, 0.11f, 0.08f, 0.14f);
+        private static readonly Color AppPanelChromeColor = new Color(1f, 1f, 1f, 0.05f);
+        private static readonly Color AppPanelInnerShadowColor = new Color(0.17f, 0.12f, 0.10f, 0.08f);
+        private static readonly Color AppPanelShadowColor = new Color(0.12f, 0.10f, 0.08f, 0.11f);
+        private static readonly Color AppSectionFillColor = new Color(1f, 1f, 1f, 0.84f);
+        private static readonly Color AppSectionShadowColor = new Color(0.13f, 0.11f, 0.08f, 0.05f);
+        private static readonly Color AppButtonFillColor = new Color(1f, 0.992f, 0.978f, 0.98f);
+        private static readonly Color AppButtonShadowColor = new Color(0.13f, 0.11f, 0.08f, 0.08f);
         private static readonly Color AppButtonLabelColor = new Color(0.22f, 0.19f, 0.17f, 1f);
         private static readonly Color AppPrimaryButtonFillColor = new Color(0.22f, 0.30f, 0.54f, 0.98f);
-        private static readonly Color AppPrimaryButtonSubtitleColor = new Color(0.95f, 0.96f, 0.98f, 0.84f);
+        private static readonly Color AppPrimaryButtonSubtitleColor = new Color(0.95f, 0.96f, 0.98f, 0.92f);
         private static readonly Color AppCallToActionFillColor = new Color(0.96f, 0.78f, 0.48f, 0.98f);
         private static readonly Color AppCallToActionTextColor = new Color(0.22f, 0.16f, 0.12f, 1f);
         private static readonly Color AppSelectedFillColor = new Color(1f, 0.985f, 0.955f, 0.99f);
@@ -89,6 +89,10 @@ namespace PremiumLudo
         private RectTransform _homePanel;
         private RectTransform _setupPanel;
         private RectTransform _lobbyPanel;
+        private CanvasGroup _homeCanvasGroup;
+        private CanvasGroup _setupCanvasGroup;
+        private CanvasGroup _lobbyCanvasGroup;
+        private CanvasGroup _gameplayCanvasGroup;
         private RectTransform _setupScrollContent;
         private ScrollRect _setupScrollRect;
         private GridLayoutGroup _colorGrid;
@@ -128,6 +132,7 @@ namespace PremiumLudo
         private Vector2 _lastUiSize;
         private bool _bootstrapped;
         private AppScreen _currentScreen = AppScreen.Home;
+        private AppScreen _visibleScreen = (AppScreen)(-1);
         private LudoGameMode _setupMode = LudoGameMode.Local;
         private LudoOnlineEntryMode _onlineEntryMode = LudoOnlineEntryMode.CreateAndJoin;
         private int _selectedPlayerCount = 2;
@@ -135,6 +140,8 @@ namespace PremiumLudo
         private LudoTokenColor _localColor = LudoTokenColor.Blue;
         private LudoRoomSnapshot _roomSnapshot;
         private LudoSessionConfig _activeSession;
+        private Text _homeTitleText;
+        private Text _homeSubtitleText;
 
         public void Initialize(LudoAnimationController animationController, LudoBoardRenderer boardRenderer, LudoGameController gameController, RectTransform uiLayer)
         {
@@ -147,12 +154,13 @@ namespace PremiumLudo
             _boardRenderer = boardRenderer;
             _gameController = gameController;
             _uiLayer = uiLayer;
-            _onlineService = LudoUtility.GetOrAddComponent<LudoOnlineService>(gameObject);
-            _onlineService.RoomSnapshotReceived += OnRoomSnapshotReceived;
-            _onlineService.ChatMessageReceived += OnChatMessageReceived;
-            _onlineService.TurnActionReceived += OnTurnActionReceived;
-            _onlineService.StatusChanged += OnOnlineStatusChanged;
-            _onlineService.ErrorReceived += OnOnlineErrorReceived;
+                _onlineService = LudoUtility.GetOrAddComponent<LudoOnlineService>(gameObject);
+                _onlineService.RoomSnapshotReceived += OnRoomSnapshotReceived;
+                _onlineService.MatchStartedReceived += OnOnlineMatchStarted;
+                _onlineService.ChatMessageReceived += OnChatMessageReceived;
+                _onlineService.TurnActionReceived += OnTurnActionReceived;
+                _onlineService.StatusChanged += OnOnlineStatusChanged;
+                _onlineService.ErrorReceived += OnOnlineErrorReceived;
 
             if (_gameController != null)
             {
@@ -170,6 +178,7 @@ namespace PremiumLudo
             if (_onlineService != null)
             {
                 _onlineService.RoomSnapshotReceived -= OnRoomSnapshotReceived;
+                _onlineService.MatchStartedReceived -= OnOnlineMatchStarted;
                 _onlineService.ChatMessageReceived -= OnChatMessageReceived;
                 _onlineService.TurnActionReceived -= OnTurnActionReceived;
                 _onlineService.StatusChanged -= OnOnlineStatusChanged;
@@ -219,15 +228,16 @@ namespace PremiumLudo
         {
             _homeScreen = LudoUtility.CreateUIObject("HomeScreen", _appRoot);
             LudoUtility.Stretch(_homeScreen);
+            _homeCanvasGroup = PrepareScreen(_homeScreen);
 
             _homePanel = CreateFloatingPanel(_homeScreen, "HomePanel");
-            Text title = LudoUtility.CreateText("Title", _homePanel, "PREMIUM LUDO", 42, FontStyle.Bold, TextAnchor.MiddleCenter, LudoTheme.TextPrimary);
-            ConfigureSection(title.rectTransform, 80f);
-            title.raycastTarget = false;
+            _homeTitleText = LudoUtility.CreateText("Title", _homePanel, "PREMIUM LUDO", 42, FontStyle.Bold, TextAnchor.MiddleCenter, LudoTheme.TextPrimary);
+            ConfigureSection(_homeTitleText.rectTransform, 80f);
+            _homeTitleText.raycastTarget = false;
 
-            Text subtitle = LudoUtility.CreateText("Subtitle", _homePanel, "Choose how you want to play.", 22, FontStyle.Normal, TextAnchor.MiddleCenter, LudoTheme.TextMuted);
-            ConfigureSection(subtitle.rectTransform, 44f);
-            subtitle.raycastTarget = false;
+            _homeSubtitleText = LudoUtility.CreateText("Subtitle", _homePanel, "Choose how you want to play.", 22, FontStyle.Normal, TextAnchor.MiddleCenter, LudoTheme.TextMuted);
+            ConfigureSection(_homeSubtitleText.rectTransform, 44f);
+            _homeSubtitleText.raycastTarget = false;
 
             _homeLocalButton = CreateLargeActionButton(_homePanel, "Local", "2, 3 or 4 players on one device.", () => OpenSetup(LudoGameMode.Local));
             _homeComputerButton = CreateLargeActionButton(_homePanel, "Computer", "One player against AI-controlled rivals.", () => OpenSetup(LudoGameMode.Computer));
@@ -238,6 +248,7 @@ namespace PremiumLudo
         {
             _setupScreen = LudoUtility.CreateUIObject("SetupScreen", _appRoot);
             LudoUtility.Stretch(_setupScreen);
+            _setupCanvasGroup = PrepareScreen(_setupScreen);
 
             _setupPanel = CreateFloatingPanel(_setupScreen, "SetupPanel");
             RectTransform setupHeaderRow = CreateHeaderRow(_setupPanel);
@@ -257,7 +268,7 @@ namespace PremiumLudo
             setupScrollLayout.minHeight = 260f;
             setupScrollLayout.preferredHeight = 420f;
             Image setupScrollFill = LudoUtility.GetOrAddComponent<Image>(setupScrollRoot.gameObject);
-            setupScrollFill.sprite = LudoSpriteFactory.RoundedMask;
+            LudoUtility.ApplySprite(setupScrollFill, LudoSpriteFactory.RoundedMask);
             setupScrollFill.color = new Color(1f, 0.995f, 0.982f, 0.38f);
             setupScrollFill.raycastTarget = true;
             Shadow setupScrollShadow = LudoUtility.GetOrAddComponent<Shadow>(setupScrollRoot.gameObject);
@@ -352,6 +363,7 @@ namespace PremiumLudo
         {
             _lobbyScreen = LudoUtility.CreateUIObject("LobbyScreen", _appRoot);
             LudoUtility.Stretch(_lobbyScreen);
+            _lobbyCanvasGroup = PrepareScreen(_lobbyScreen);
 
             _lobbyPanel = CreateFloatingPanel(_lobbyScreen, "LobbyPanel");
             RectTransform lobbyHeaderRow = CreateHeaderRow(_lobbyPanel);
@@ -391,6 +403,7 @@ namespace PremiumLudo
         {
             _gameplayOverlay = LudoUtility.CreateUIObject("GameplayOverlay", _appRoot);
             LudoUtility.Stretch(_gameplayOverlay);
+            _gameplayCanvasGroup = PrepareScreen(_gameplayOverlay);
 
             RectTransform topBar = LudoUtility.CreateUIObject("TopBar", _gameplayOverlay);
             topBar.anchorMin = new Vector2(0f, 1f);
@@ -402,7 +415,7 @@ namespace PremiumLudo
             roomBadge.anchorMin = roomBadge.anchorMax = new Vector2(0.5f, 0.5f);
             roomBadge.pivot = new Vector2(0.5f, 0.5f);
             Image roomBadgeFill = LudoUtility.GetOrAddComponent<Image>(roomBadge.gameObject);
-            roomBadgeFill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(roomBadgeFill, LudoSpriteFactory.RoundedMask);
             roomBadgeFill.color = new Color(1f, 0.985f, 0.965f, 0.94f);
             roomBadgeFill.raycastTarget = false;
             Shadow roomBadgeShadow = LudoUtility.GetOrAddComponent<Shadow>(roomBadge.gameObject);
@@ -434,23 +447,35 @@ namespace PremiumLudo
 
             float width = _uiLayer.rect.width;
             float height = _uiLayer.rect.height;
+            bool compactPhoneLayout = IsCompactPhoneLayout(width, height);
 
-            SetPanelSize(_homePanel, Mathf.Clamp(width * 0.74f, 380f, 720f), Mathf.Clamp(height * 0.58f, 420f, 640f));
-            SetPanelSize(_setupPanel, Mathf.Clamp(width * 0.82f, 420f, 760f), Mathf.Clamp(height * 0.84f, 620f, 1040f));
-            SetPanelSize(_lobbyPanel, Mathf.Clamp(width * 0.80f, 400f, 720f), Mathf.Clamp(height * 0.72f, 520f, 820f));
+            if (compactPhoneLayout)
+            {
+                SetPanelSize(_homePanel, Mathf.Clamp(width * 0.96f, 600f, 1080f), Mathf.Clamp(height * 0.78f, 900f, 1480f));
+                SetPanelSize(_setupPanel, Mathf.Clamp(width * 0.975f, 660f, 1080f), Mathf.Clamp(height * 0.92f, 1080f, 1640f));
+                SetPanelSize(_lobbyPanel, Mathf.Clamp(width * 0.965f, 640f, 1040f), Mathf.Clamp(height * 0.88f, 980f, 1480f));
+            }
+            else
+            {
+                SetPanelSize(_homePanel, Mathf.Clamp(width * 0.74f, 380f, 720f), Mathf.Clamp(height * 0.58f, 420f, 640f));
+                SetPanelSize(_setupPanel, Mathf.Clamp(width * 0.82f, 420f, 760f), Mathf.Clamp(height * 0.84f, 620f, 1040f));
+                SetPanelSize(_lobbyPanel, Mathf.Clamp(width * 0.80f, 400f, 720f), Mathf.Clamp(height * 0.72f, 520f, 820f));
+            }
 
             if (_colorGrid != null)
             {
-                float availableWidth = _setupPanel.rect.width - 76f;
-                float cellWidth = Mathf.Max(140f, (availableWidth - _colorGrid.spacing.x) * 0.5f);
-                float cellHeight = Mathf.Clamp(_setupPanel.rect.height * 0.17f, 122f, 168f);
+                float availableWidth = _setupPanel.rect.width - (compactPhoneLayout ? 52f : 76f);
+                float cellWidth = Mathf.Max(compactPhoneLayout ? 170f : 140f, (availableWidth - _colorGrid.spacing.x) * 0.5f);
+                float cellHeight = Mathf.Clamp(_setupPanel.rect.height * (compactPhoneLayout ? 0.16f : 0.17f), compactPhoneLayout ? 156f : 122f, compactPhoneLayout ? 220f : 168f);
                 _colorGrid.cellSize = new Vector2(cellWidth, cellHeight);
             }
 
-            float panelContentWidth = Mathf.Max(220f, _setupPanel.rect.width - 48f);
+            float panelContentWidth = Mathf.Max(compactPhoneLayout ? 320f : 220f, _setupPanel.rect.width - (compactPhoneLayout ? 28f : 48f));
             RefreshChoiceButtonWidths(_onlineEntryGroup, panelContentWidth);
             RefreshChoiceButtonWidths(_playerCountGroup, panelContentWidth);
             RefreshChoiceButtonWidths(_localColorGroup, panelContentWidth);
+            RefreshHomeLayout(compactPhoneLayout);
+            RefreshSetupTypography(compactPhoneLayout);
 
             if (_roomBadgeText != null)
             {
@@ -461,6 +486,126 @@ namespace PremiumLudo
                     badgeRect.anchoredPosition = new Vector2(0f, -18f);
                 }
             }
+        }
+
+        private void RefreshHomeLayout(bool compactPhoneLayout)
+        {
+            if (_homeTitleText != null)
+            {
+                _homeTitleText.fontSize = compactPhoneLayout ? 68 : 42;
+                SetPreferredHeight(_homeTitleText.rectTransform, compactPhoneLayout ? 132f : 80f);
+            }
+
+            if (_homeSubtitleText != null)
+            {
+                _homeSubtitleText.fontSize = compactPhoneLayout ? 30 : 22;
+                SetPreferredHeight(_homeSubtitleText.rectTransform, compactPhoneLayout ? 72f : 44f);
+            }
+
+            RefreshLargeActionButtonLayout(_homeLocalButton, compactPhoneLayout);
+            RefreshLargeActionButtonLayout(_homeComputerButton, compactPhoneLayout);
+            RefreshLargeActionButtonLayout(_homeOnlineButton, compactPhoneLayout);
+        }
+
+        private void RefreshSetupTypography(bool compactPhoneLayout)
+        {
+            if (_setupTitleText != null)
+            {
+                _setupTitleText.fontSize = compactPhoneLayout ? 42 : 34;
+            }
+
+            if (_setupSubtitleText != null)
+            {
+                _setupSubtitleText.fontSize = compactPhoneLayout ? 24 : 20;
+            }
+
+            if (_lobbyTitleText != null)
+            {
+                _lobbyTitleText.fontSize = compactPhoneLayout ? 42 : 34;
+            }
+
+            if (_lobbyStatusText != null)
+            {
+                _lobbyStatusText.fontSize = compactPhoneLayout ? 24 : 20;
+            }
+
+            ResizeButton(_playButton, compactPhoneLayout ? 82f : 64f, compactPhoneLayout ? 26 : 22);
+            ResizeButton(_lobbyStartButton, compactPhoneLayout ? 82f : 64f, compactPhoneLayout ? 26 : 22);
+            ResizeButton(_setupBackButton, compactPhoneLayout ? 58f : 48f, compactPhoneLayout ? 22 : 18);
+            ResizeButton(_lobbyBackButton, compactPhoneLayout ? 58f : 48f, compactPhoneLayout ? 22 : 18);
+        }
+
+        private static void RefreshLargeActionButtonLayout(ButtonView buttonView, bool compactPhoneLayout)
+        {
+            if (buttonView == null || buttonView.Root == null)
+            {
+                return;
+            }
+
+            LayoutElement layout = buttonView.Root.GetComponent<LayoutElement>();
+            if (layout != null)
+            {
+                layout.preferredHeight = compactPhoneLayout ? 156f : 92f;
+            }
+
+            Transform titleTransform = buttonView.Root.Find("Content/Title");
+            if (titleTransform != null && titleTransform.TryGetComponent(out Text titleText))
+            {
+                titleText.fontSize = compactPhoneLayout ? 38 : 24;
+                titleText.rectTransform.offsetMax = compactPhoneLayout ? new Vector2(0f, -34f) : new Vector2(0f, -20f);
+                titleText.rectTransform.offsetMin = compactPhoneLayout ? new Vector2(0f, 24f) : new Vector2(0f, 4f);
+            }
+
+            Transform subtitleTransform = buttonView.Root.Find("Content/Subtitle");
+            if (subtitleTransform != null && subtitleTransform.TryGetComponent(out Text subtitleText))
+            {
+                subtitleText.fontSize = compactPhoneLayout ? 20 : 15;
+                subtitleText.rectTransform.sizeDelta = compactPhoneLayout ? new Vector2(0f, 34f) : new Vector2(0f, 22f);
+            }
+        }
+
+        private static void ResizeButton(ButtonView buttonView, float height, int fontSize)
+        {
+            if (buttonView == null || buttonView.Root == null)
+            {
+                return;
+            }
+
+            LayoutElement layout = buttonView.Root.GetComponent<LayoutElement>();
+            if (layout != null)
+            {
+                layout.preferredHeight = height;
+            }
+
+            if (buttonView.Label != null)
+            {
+                buttonView.Label.fontSize = fontSize;
+            }
+        }
+
+        private static void SetPreferredHeight(RectTransform rectTransform, float preferredHeight)
+        {
+            if (rectTransform == null)
+            {
+                return;
+            }
+
+            LayoutElement layout = rectTransform.GetComponent<LayoutElement>();
+            if (layout != null)
+            {
+                layout.preferredHeight = preferredHeight;
+            }
+        }
+
+        private static bool IsCompactPhoneLayout(float width, float height)
+        {
+            if (!Application.isMobilePlatform)
+            {
+                return false;
+            }
+
+            float aspect = height / Mathf.Max(1f, width);
+            return width <= 760f || aspect >= 1.55f;
         }
 
         private void OpenSetup(LudoGameMode mode)
@@ -522,32 +667,94 @@ namespace PremiumLudo
 
         private void RefreshScreenVisibility()
         {
-            if (_homeScreen != null)
-            {
-                _homeScreen.gameObject.SetActive(_currentScreen == AppScreen.Home);
-            }
+            bool screenChanged = _visibleScreen != _currentScreen;
+            _visibleScreen = _currentScreen;
 
-            if (_setupScreen != null)
-            {
-                _setupScreen.gameObject.SetActive(_currentScreen == AppScreen.Setup);
-            }
+            SetScreenVisible(_homeScreen, _homeCanvasGroup, _currentScreen == AppScreen.Home, screenChanged);
+            SetScreenVisible(_setupScreen, _setupCanvasGroup, _currentScreen == AppScreen.Setup, screenChanged);
+            SetScreenVisible(_lobbyScreen, _lobbyCanvasGroup, _currentScreen == AppScreen.Lobby, screenChanged);
 
-            if (_lobbyScreen != null)
+            bool showGameplayOverlay = _currentScreen == AppScreen.Gameplay;
+            SetScreenVisible(_gameplayOverlay, _gameplayCanvasGroup, showGameplayOverlay, screenChanged);
+            if (_chatPanel != null)
             {
-                _lobbyScreen.gameObject.SetActive(_currentScreen == AppScreen.Lobby);
-            }
-
-            if (_gameplayOverlay != null)
-            {
-                bool showGameplayOverlay = _currentScreen == AppScreen.Gameplay;
-                _gameplayOverlay.gameObject.SetActive(showGameplayOverlay);
-                if (_chatPanel != null)
-                {
-                    _chatPanel.SetVisible(showGameplayOverlay && _activeSession != null && _activeSession.UsesNetwork);
-                }
+                _chatPanel.SetVisible(showGameplayOverlay && _activeSession != null && _activeSession.UsesNetwork);
             }
 
             RefreshGameplayOverlay();
+        }
+
+        private CanvasGroup PrepareScreen(RectTransform screenRoot)
+        {
+            if (screenRoot == null)
+            {
+                return null;
+            }
+
+            CanvasGroup canvasGroup = LudoUtility.GetOrAddComponent<CanvasGroup>(screenRoot.gameObject);
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+            screenRoot.anchoredPosition = Vector2.zero;
+            return canvasGroup;
+        }
+
+        private void SetScreenVisible(RectTransform screenRoot, CanvasGroup canvasGroup, bool visible, bool animate)
+        {
+            if (screenRoot == null)
+            {
+                return;
+            }
+
+            if (!visible)
+            {
+                if (canvasGroup != null)
+                {
+                    canvasGroup.alpha = 1f;
+                    canvasGroup.interactable = false;
+                    canvasGroup.blocksRaycasts = false;
+                }
+
+                screenRoot.anchoredPosition = Vector2.zero;
+                screenRoot.gameObject.SetActive(false);
+                return;
+            }
+
+            screenRoot.gameObject.SetActive(true);
+            if (canvasGroup != null)
+            {
+                canvasGroup.interactable = true;
+                canvasGroup.blocksRaycasts = true;
+            }
+
+            if (!animate)
+            {
+                if (canvasGroup != null)
+                {
+                    canvasGroup.alpha = 1f;
+                }
+
+                screenRoot.anchoredPosition = Vector2.zero;
+                return;
+            }
+
+            if (_animationController == null || canvasGroup == null)
+            {
+                if (canvasGroup != null)
+                {
+                    canvasGroup.alpha = 1f;
+                }
+
+                screenRoot.anchoredPosition = Vector2.zero;
+                return;
+            }
+
+            float now = _animationController.TimeNow;
+            Vector2 fromPosition = new Vector2(0f, -18f);
+            screenRoot.anchoredPosition = fromPosition;
+            canvasGroup.alpha = 0f;
+            _animationController.ScheduleMove(screenRoot, fromPosition, Vector2.zero, now, 0.22f, LudoEase.EaseOut);
+            _animationController.ScheduleCanvasGroupAlpha(canvasGroup, 0f, 1f, now, 0.20f, LudoEase.EaseOut);
         }
 
         private static void RefreshChoiceButtonWidths(HorizontalLayoutGroup group, float availableWidth)
@@ -706,7 +913,7 @@ namespace PremiumLudo
 
         private void RefreshLobbyUi()
         {
-            if (_roomSnapshot == null)
+            if (_roomSnapshot == null || _lobbySeats == null || _lobbySeats.Count == 0)
             {
                 return;
             }
@@ -721,7 +928,12 @@ namespace PremiumLudo
             for (int i = 0; i < s_MenuColorOrder.Length; i++)
             {
                 LudoTokenColor color = s_MenuColorOrder[i];
-                LobbySeatView seatView = _lobbySeats[color];
+                LobbySeatView seatView;
+                if (!_lobbySeats.TryGetValue(color, out seatView) || seatView == null || seatView.Root == null)
+                {
+                    continue;
+                }
+
                 bool isActive = activeColors.Contains(color);
                 seatView.Root.gameObject.SetActive(isActive);
                 if (!isActive)
@@ -739,10 +951,17 @@ namespace PremiumLudo
                 seatView.Fill.color = connected
                     ? Color.Lerp(AppPanelColor, LudoTheme.GetTokenTint(color), 0.22f)
                     : new Color(1f, 0.992f, 0.978f, 0.88f);
-                seatView.Title.text = LudoBoardGeometry.GetPlayerName(color);
-                seatView.Subtitle.text = connected
-                    ? (string.IsNullOrEmpty(seat.DisplayName) ? "Connected" : seat.DisplayName + (seat.IsHost ? " (Host)" : string.Empty))
-                    : "Waiting...";
+                if (seatView.Title != null)
+                {
+                    seatView.Title.text = LudoBoardGeometry.GetPlayerName(color);
+                }
+
+                if (seatView.Subtitle != null)
+                {
+                    seatView.Subtitle.text = connected
+                        ? (string.IsNullOrEmpty(seat.DisplayName) ? "Connected" : seat.DisplayName + (seat.IsHost ? " (Host)" : string.Empty))
+                        : "Waiting...";
+                }
             }
 
             bool readyToStart = connectedCount >= 2;
@@ -916,6 +1135,23 @@ namespace PremiumLudo
                 return;
             }
 
+            if (_gameController != null && _gameController.SessionActive)
+            {
+                _gameController.EndSession();
+            }
+
+            _activeSession = null;
+            if (_chatPanel != null)
+            {
+                _chatPanel.ClearMessages();
+                _chatPanel.SetVisible(false);
+            }
+
+            if (_onlineService.IsConnected || !string.IsNullOrEmpty(_onlineService.RoomCode))
+            {
+                _onlineService.LeaveRoom();
+            }
+
             string playerName;
             string nameError;
             if (!TryGetRequiredOnlinePlayerName(out playerName, out nameError))
@@ -1039,21 +1275,43 @@ namespace PremiumLudo
             }
 
             _roomSnapshot = snapshot;
-            if (snapshot.Started)
+            if (_activeSession != null && _activeSession.UsesNetwork && _gameController != null && _gameController.SessionActive)
             {
-                if (_activeSession == null || !_gameController.SessionActive || !_activeSession.UsesNetwork)
+                if (snapshot.Started)
                 {
-                    LudoSessionConfig session = BuildOnlineSession(snapshot);
-                    if (session != null)
-                    {
-                        BeginGameplay(session);
-                    }
+                    _gameController.ApplyOnlineSnapshot(snapshot, true);
+                    ShowGameplay();
+                    return;
                 }
-
-                return;
             }
 
             ShowLobby();
+        }
+
+        private void OnOnlineMatchStarted(LudoRoomSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return;
+            }
+
+            _roomSnapshot = snapshot;
+
+            if (_activeSession == null || !_activeSession.UsesNetwork || _gameController == null || !_gameController.SessionActive)
+            {
+                LudoSessionConfig session = BuildOnlineSession(snapshot);
+                if (session == null)
+                {
+                    return;
+                }
+
+                BeginGameplay(session);
+            }
+
+            if (_gameController != null && _gameController.SessionActive)
+            {
+                _gameController.ApplyOnlineSnapshot(snapshot, true);
+            }
         }
 
         private void OnChatMessageReceived(LudoChatMessage message)
@@ -1077,7 +1335,7 @@ namespace PremiumLudo
                 return;
             }
 
-            if (_onlineService != null && string.Equals(action.Color, _onlineService.LocalColor, StringComparison.OrdinalIgnoreCase))
+            if (_onlineService != null && !string.IsNullOrEmpty(action.PlayerId) && string.Equals(action.PlayerId, _onlineService.LocalPlayerId, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -1350,12 +1608,12 @@ namespace PremiumLudo
             RectTransform panel = LudoUtility.CreateUIObject(name, parent);
             panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(0.5f, 0.5f);
             Image panelFill = LudoUtility.GetOrAddComponent<Image>(panel.gameObject);
-            panelFill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(panelFill, LudoSpriteFactory.RoundedMask);
             panelFill.color = AppPanelColor;
             panelFill.raycastTarget = true;
             Shadow panelDropShadow = LudoUtility.GetOrAddComponent<Shadow>(panel.gameObject);
             panelDropShadow.effectColor = AppPanelShadowColor;
-            panelDropShadow.effectDistance = new Vector2(0f, -10f);
+            panelDropShadow.effectDistance = new Vector2(0f, -6f);
             panelDropShadow.useGraphicAlpha = true;
 
             Image panelGloss = LudoUtility.CreateImage("Gloss", panel, LudoSpriteFactory.RoundedGloss, AppPanelChromeColor);
@@ -1386,12 +1644,12 @@ namespace PremiumLudo
             layout.minHeight = 92f;
             layout.flexibleHeight = 0f;
             Image fill = LudoUtility.GetOrAddComponent<Image>(section.gameObject);
-            fill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(fill, LudoSpriteFactory.RoundedMask);
             fill.color = AppSectionFillColor;
             fill.raycastTarget = false;
             Shadow shadow = LudoUtility.GetOrAddComponent<Shadow>(section.gameObject);
             shadow.effectColor = AppSectionShadowColor;
-            shadow.effectDistance = new Vector2(0f, -4f);
+            shadow.effectDistance = new Vector2(0f, -2f);
             shadow.useGraphicAlpha = true;
 
             VerticalLayoutGroup sectionLayout = LudoUtility.GetOrAddComponent<VerticalLayoutGroup>(section.gameObject);
@@ -1446,11 +1704,11 @@ namespace PremiumLudo
         {
             ButtonView buttonView = CreateButtonView(parent, title, onClick);
             LayoutElement layout = LudoUtility.GetOrAddComponent<LayoutElement>(buttonView.Root.gameObject);
-            layout.preferredHeight = 96f;
+            layout.preferredHeight = 92f;
             buttonView.Fill.color = AppPrimaryButtonFillColor;
             if (buttonView.Accent != null)
             {
-                buttonView.Accent.color = new Color(1f, 0.86f, 0.58f, 0.10f);
+                buttonView.Accent.color = new Color(1f, 1f, 1f, 0.06f);
             }
 
             RectTransform content = LudoUtility.CreateUIObject("Content", buttonView.Root);
@@ -1460,18 +1718,23 @@ namespace PremiumLudo
             titleText.rectTransform.anchorMin = new Vector2(0f, 0f);
             titleText.rectTransform.anchorMax = new Vector2(1f, 1f);
             titleText.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-            titleText.rectTransform.offsetMin = Vector2.zero;
-            titleText.rectTransform.offsetMax = new Vector2(0f, -24f);
+            titleText.rectTransform.offsetMin = new Vector2(0f, 4f);
+            titleText.rectTransform.offsetMax = new Vector2(0f, -20f);
             titleText.raycastTarget = false;
 
-            Text subtitleText = LudoUtility.CreateText("Subtitle", content, subtitle, 16, FontStyle.Normal, TextAnchor.LowerLeft, AppPrimaryButtonSubtitleColor);
+            Text subtitleText = LudoUtility.CreateText("Subtitle", content, subtitle, 15, FontStyle.Normal, TextAnchor.LowerLeft, AppPrimaryButtonSubtitleColor);
             subtitleText.rectTransform.anchorMin = new Vector2(0f, 0f);
             subtitleText.rectTransform.anchorMax = new Vector2(1f, 0f);
             subtitleText.rectTransform.pivot = new Vector2(0.5f, 0f);
-            subtitleText.rectTransform.sizeDelta = new Vector2(0f, 24f);
+            subtitleText.rectTransform.sizeDelta = new Vector2(0f, 22f);
             subtitleText.raycastTarget = false;
 
             buttonView.Label.gameObject.SetActive(false);
+            LudoButtonFeedback largeActionFeedback = buttonView.Root.GetComponent<LudoButtonFeedback>();
+            if (largeActionFeedback != null)
+            {
+                largeActionFeedback.SyncBaseState();
+            }
             return buttonView;
         }
 
@@ -1488,6 +1751,12 @@ namespace PremiumLudo
             if (buttonView.Accent != null)
             {
                 buttonView.Accent.color = new Color(1f, 1f, 1f, 0.14f);
+            }
+
+            LudoButtonFeedback bottomActionFeedback = buttonView.Root.GetComponent<LudoButtonFeedback>();
+            if (bottomActionFeedback != null)
+            {
+                bottomActionFeedback.SyncBaseState();
             }
             return buttonView;
         }
@@ -1534,7 +1803,7 @@ namespace PremiumLudo
             chipView.Icon.rectTransform.sizeDelta = new Vector2(62f, 62f);
             chipView.Icon.rectTransform.anchoredPosition = new Vector2(0f, 16f);
             chipView.Icon.preserveAspect = true;
-            chipView.Icon.useSpriteMesh = true;
+            chipView.Icon.useSpriteMesh = false;
             chipView.Icon.raycastTarget = false;
 
             chipView.Title = LudoUtility.CreateText("Title", content, LudoBoardGeometry.GetPlayerName(color), 20, FontStyle.Bold, TextAnchor.MiddleCenter, LudoTheme.TextPrimary);
@@ -1563,7 +1832,7 @@ namespace PremiumLudo
             layout.preferredHeight = 72f;
 
             seatView.Fill = LudoUtility.GetOrAddComponent<Image>(seatView.Root.gameObject);
-            seatView.Fill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(seatView.Fill, LudoSpriteFactory.RoundedMask);
             seatView.Fill.color = Color.Lerp(AppPanelColor, LudoTheme.GetTokenTint(color), 0.16f);
             seatView.Fill.raycastTarget = false;
             Shadow seatShadow = LudoUtility.GetOrAddComponent<Shadow>(seatView.Root.gameObject);
@@ -1600,7 +1869,7 @@ namespace PremiumLudo
             layout.preferredHeight = 56f;
 
             Image fill = LudoUtility.GetOrAddComponent<Image>(root.gameObject);
-            fill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(fill, LudoSpriteFactory.RoundedMask);
             fill.color = AppPanelColor;
             fill.raycastTarget = true;
             Shadow shadow = LudoUtility.GetOrAddComponent<Shadow>(root.gameObject);
@@ -1635,19 +1904,19 @@ namespace PremiumLudo
             ButtonView view = new ButtonView();
             view.Root = LudoUtility.CreateUIObject(string.IsNullOrEmpty(label) ? "Button" : label.Replace(" ", string.Empty) + "Button", parent);
             view.Fill = LudoUtility.GetOrAddComponent<Image>(view.Root.gameObject);
-            view.Fill.sprite = LudoSpriteFactory.RoundedGradient;
+            LudoUtility.ApplySprite(view.Fill, LudoSpriteFactory.RoundedMask);
             view.Fill.color = AppButtonFillColor;
             view.Fill.raycastTarget = true;
             Shadow buttonShadow = LudoUtility.GetOrAddComponent<Shadow>(view.Root.gameObject);
             buttonShadow.effectColor = AppButtonShadowColor;
-            buttonShadow.effectDistance = new Vector2(0f, -4f);
+            buttonShadow.effectDistance = new Vector2(0f, -2f);
             buttonShadow.useGraphicAlpha = true;
 
             Image innerShadow = LudoUtility.CreateImage("InnerShadow", view.Root, LudoSpriteFactory.RoundedInnerShadow, new Color(0.16f, 0.12f, 0.10f, 0.08f));
             LudoUtility.Stretch(innerShadow.rectTransform);
             innerShadow.raycastTarget = false;
 
-            view.Accent = LudoUtility.CreateImage("Accent", view.Root, LudoSpriteFactory.RoundedGloss, new Color(1f, 1f, 1f, 0.10f));
+            view.Accent = LudoUtility.CreateImage("Accent", view.Root, LudoSpriteFactory.RoundedGloss, new Color(1f, 1f, 1f, 0.05f));
             LudoUtility.Stretch(view.Accent.rectTransform, 2f, 2f, 2f, 2f);
             view.Accent.raycastTarget = false;
 
@@ -1672,6 +1941,9 @@ namespace PremiumLudo
             view.Label = LudoUtility.CreateText("Label", view.Root, label, 20, FontStyle.Bold, TextAnchor.MiddleCenter, AppButtonLabelColor);
             LudoUtility.Stretch(view.Label.rectTransform, 14f, 14f, 12f, 12f);
             view.Label.raycastTarget = false;
+
+            LudoButtonFeedback feedback = LudoUtility.GetOrAddComponent<LudoButtonFeedback>(view.Root.gameObject);
+            feedback.Configure(view.Accent, 1.012f, 0.985f, 0.10f, 0.16f);
             return view;
         }
 
@@ -1696,6 +1968,12 @@ namespace PremiumLudo
             if (view.Accent != null)
             {
                 view.Accent.color = selected ? new Color(accent.r, accent.g, accent.b, 0.18f) : new Color(1f, 1f, 1f, 0.08f);
+            }
+
+            LudoButtonFeedback feedback = view.Root != null ? view.Root.GetComponent<LudoButtonFeedback>() : null;
+            if (feedback != null)
+            {
+                feedback.SyncBaseState();
             }
         }
 

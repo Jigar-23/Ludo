@@ -1,16 +1,35 @@
 # Premium Ludo Render Server
 
-This is a simple Render-ready backend for the Unity client in this project.
+This is the Socket.IO + Redis-ready backend for the Unity client in this project.
 
-## Endpoints
+## Transport
 
-- `POST /api/ludo/rooms/create`
-- `POST /api/ludo/rooms/join`
-- `POST /api/ludo/rooms/:roomCode/start`
-- `POST /api/ludo/rooms/:roomCode/leave`
-- `POST /api/ludo/rooms/:roomCode/chat`
-- `POST /api/ludo/rooms/:roomCode/turn`
-- `GET /api/ludo/rooms/:roomCode/poll`
+- `Socket.IO` over `/socket.io`
+- Health route: `GET /`
+- Optional health route: `GET /api/ludo`
+
+## Socket Events
+
+Client to server:
+
+- `createRoom`
+- `joinRoom`
+- `recoverSession`
+- `startGame`
+- `playTurn`
+- `sendChat`
+- `leaveRoom`
+
+Server to client:
+
+- `roomCreated`
+- `playerJoined`
+- `playerLeft`
+- `gameStarted`
+- `turnPlayed`
+- `chatMessage`
+- `gameStateUpdate`
+- `errorMessage`
 
 ## Local Run
 
@@ -29,8 +48,9 @@ The server listens on `PORT` or `10000`.
 3. Runtime: `Node`
 4. Build command: `npm install`
 5. Start command: `npm start`
-6. Leave the service public unless you are adding your own auth layer.
-7. Copy the deployed base URL after the first successful deploy.
+6. Add environment variable `REDIS_URL` pointing to your Redis instance.
+7. Leave the service public unless you are adding your own auth layer.
+8. Copy the deployed base URL after the first successful deploy.
 
 ## Unity Client Hookup
 
@@ -40,15 +60,17 @@ Update `DefaultServerBaseUrl` in:
 
 Set it to your Render deployment URL, for example:
 
-`https://your-service-name.onrender.com/api/ludo`
+`https://your-service-name.onrender.com`
 
 ## Notes
 
-- This server already supports room create/join, chat, turn sync, and polling.
+- This server is server-authoritative for turn validation.
 - Chat sender names come from the `PlayerName` provided by the Unity client when creating or joining.
 - The host can start once at least 2 players are connected, even if the room was originally created for 3 or 4.
 - When the host starts early, the match uses only the currently connected colors.
-- This server keeps room state in memory only.
-- Restarting the service clears active rooms.
-- You do not need a separate chat service right now; chat is already part of this backend.
-- It is a lightweight starting point that you can later extend with auth, persistence, reconnect handling, and stronger validation.
+- Room state is kept in memory for hot runtime access and persisted to Redis for reconnect recovery.
+- If `REDIS_URL` is missing, the service falls back to in-memory only.
+- Restarting the service without Redis will clear active rooms.
+- You do not need a separate chat service; chat is already part of this backend.
+- The Unity client now uses event-driven sockets instead of HTTP polling.
+- Reconnect recovery uses `playerId` + `roomCode`, so the client must keep those values alive for the match.

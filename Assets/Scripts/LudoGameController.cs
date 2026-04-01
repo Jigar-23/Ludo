@@ -10,6 +10,7 @@ namespace PremiumLudo
         private const float TurnHandoffDelay = 0.84f;
         private const float HumanAutoMoveDelay = 0.18f;
         private const float AITokenChoiceDelay = 0.35f;
+        private const float TokenCompletionVolume = 0.95f;
 
         private static readonly LudoTokenColor[] s_AllColors =
         {
@@ -30,10 +31,14 @@ namespace PremiumLudo
         private RectTransform _statusRoot;
         private Text _statusText;
         private LudoDiceView _diceView;
+        private AudioSource _audioSource;
+        private AudioClip _tokenCompletionSound;
+        private LudoAnimationHandle _statusPulseHandle;
 
         private readonly Dictionary<LudoTokenColor, List<LudoTokenState>> _tokenStates = new Dictionary<LudoTokenColor, List<LudoTokenState>>(4);
         private readonly Dictionary<LudoTokenColor, List<LudoTokenView>> _tokenViews = new Dictionary<LudoTokenColor, List<LudoTokenView>>(4);
         private readonly Dictionary<LudoTokenColor, Text> _playerLabels = new Dictionary<LudoTokenColor, Text>(4);
+        private readonly Dictionary<LudoTokenColor, LudoAnimationHandle> _playerLabelPulseHandles = new Dictionary<LudoTokenColor, LudoAnimationHandle>(4);
         private readonly Dictionary<LudoTokenColor, LudoParticipantConfig> _participants = new Dictionary<LudoTokenColor, LudoParticipantConfig>(4);
         private readonly Dictionary<LudoTokenView, LudoTokenState> _tokenStateLookup = new Dictionary<LudoTokenView, LudoTokenState>(32);
         private readonly List<LudoTokenState> _currentSelectableTokens = new List<LudoTokenState>(LudoBoardGeometry.TokensPerColor);
@@ -92,6 +97,7 @@ namespace PremiumLudo
             _sessionConfig = sessionConfig.Clone();
             PopulateParticipants();
             InitializeSessionTokens();
+            _sessionActive = true;
             RefreshPlayerLabels();
             ClearSelectableTokens();
             SetPresentationVisible(true);
@@ -99,7 +105,6 @@ namespace PremiumLudo
             _currentTurnIndex = 0;
             _pendingRoll = 0;
             SetTurn(_turnOrder[0], BuildTurnPrompt(_turnOrder[0]));
-            _sessionActive = true;
         }
 
         public void EndSession()
@@ -111,6 +116,7 @@ namespace PremiumLudo
             _phase = LudoTurnPhase.Booting;
             _pendingRoll = 0;
             ClearSelectableTokens();
+            ClearTurnIndicatorAnimations();
             HideAllTokenViews();
             SetPresentationVisible(false);
         }
@@ -150,6 +156,81 @@ namespace PremiumLudo
             }, null);
         }
 
+        public void ApplyOnlineSnapshot(LudoRoomSnapshot snapshot, bool immediate)
+        {
+            if (!_sessionActive || _sessionConfig == null || !_sessionConfig.UsesNetwork || snapshot == null)
+            {
+                return;
+            }
+
+            if (snapshot.TokenStates != null)
+            {
+                for (int tokenStateIndex = 0; tokenStateIndex < snapshot.TokenStates.Length; tokenStateIndex++)
+                {
+                    LudoTokenProgressState progressState = snapshot.TokenStates[tokenStateIndex];
+                    if (progressState == null)
+                    {
+                        continue;
+                    }
+
+                    LudoTokenColor color;
+                    if (!TryParseColor(progressState.Color, out color))
+                    {
+                        continue;
+                    }
+
+                    List<LudoTokenState> tokenStates = GetOrCreateTokenStates(color);
+                    for (int tokenIndex = 0; tokenIndex < tokenStates.Count; tokenIndex++)
+                    {
+                        tokenStates[tokenIndex].Progress = progressState.Progress != null && tokenIndex < progressState.Progress.Length
+                            ? progressState.Progress[tokenIndex]
+                            : -1;
+                    }
+                }
+            }
+
+            if (snapshot.Seats != null)
+            {
+                for (int seatIndex = 0; seatIndex < snapshot.Seats.Length; seatIndex++)
+                {
+                    LudoOnlineSeatState seat = snapshot.Seats[seatIndex];
+                    if (seat == null)
+                    {
+                        continue;
+                    }
+
+                    LudoTokenColor color;
+                    if (!TryParseColor(seat.Color, out color))
+                    {
+                        continue;
+                    }
+
+                    LudoParticipantConfig participant = GetParticipant(color);
+                    if (participant != null && !string.IsNullOrWhiteSpace(seat.DisplayName))
+                    {
+                        participant.DisplayName = seat.DisplayName;
+                    }
+                }
+            }
+
+            RefreshPlayerLabels();
+            SyncAllTokens(immediate);
+
+            LudoTokenColor winnerColor;
+            if (TryParseColor(snapshot.WinnerColor, out winnerColor) && _participants.ContainsKey(winnerColor))
+            {
+                HandleGameOver(winnerColor, GetFirstTokenView(winnerColor));
+                return;
+            }
+
+            LudoTokenColor nextTurnColor;
+            if (TryParseColor(snapshot.CurrentTurnColor, out nextTurnColor) && _turnOrder.Contains(nextTurnColor))
+            {
+                _currentTurnIndex = _turnOrder.IndexOf(nextTurnColor);
+                SetTurn(nextTurnColor, BuildTurnPrompt(nextTurnColor));
+            }
+        }
+
         private void Update()
         {
             if (!_bootstrapped || _uiLayer == null || _boardRenderer == null)
@@ -181,6 +262,7 @@ namespace PremiumLudo
 
         private void BuildScene()
         {
+            BuildAudio();
             BuildDice();
             BuildStatus();
             BuildPlayerLabels();
@@ -188,6 +270,20 @@ namespace PremiumLudo
             UpdateBoardViewportPadding();
             RefreshDiceBoardFrame();
             RefreshPlayerLabels();
+        }
+
+        private void BuildAudio()
+        {
+            _audioSource = LudoUtility.GetOrAddComponent<AudioSource>(gameObject);
+            if (_audioSource != null)
+            {
+                _audioSource.playOnAwake = false;
+                _audioSource.loop = false;
+                _audioSource.spatialBlend = 0f;
+                _audioSource.volume = 1f;
+            }
+
+            _tokenCompletionSound = Resources.Load<AudioClip>("token_completing");
         }
 
         private void BuildDice()
@@ -232,17 +328,17 @@ namespace PremiumLudo
 
         private void CreatePlayerLabel(LudoTokenColor color, float rotationZ)
         {
-            Text label = LudoUtility.CreateText("PlayerLabel" + color, _playerLabelRoot, LudoBoardGeometry.GetDefaultPlayerLabel(color), 24, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+            Text label = LudoUtility.CreateText("PlayerLabel" + color, _playerLabelRoot, LudoBoardGeometry.GetDefaultPlayerLabel(color), 24, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.92f, 0.95f, 1f, 0.86f));
             label.raycastTarget = false;
             label.rectTransform.anchorMin = label.rectTransform.anchorMax = label.rectTransform.pivot = new Vector2(0.5f, 0.5f);
             label.rectTransform.localEulerAngles = new Vector3(0f, 0f, rotationZ);
             Outline outline = LudoUtility.GetOrAddComponent<Outline>(label.gameObject);
-            outline.effectColor = new Color(0.05f, 0.12f, 0.34f, 0.75f);
+            outline.effectColor = new Color(0.05f, 0.12f, 0.34f, 0.56f);
             outline.effectDistance = new Vector2(2f, -2f);
             outline.useGraphicAlpha = true;
             Shadow shadow = LudoUtility.GetOrAddComponent<Shadow>(label.gameObject);
-            shadow.effectColor = new Color(0f, 0f, 0f, 0.24f);
-            shadow.effectDistance = new Vector2(0f, -3f);
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.16f);
+            shadow.effectDistance = new Vector2(0f, -2f);
             shadow.useGraphicAlpha = true;
             _playerLabels[color] = label;
         }
@@ -374,6 +470,8 @@ namespace PremiumLudo
                     }
                     break;
             }
+
+            RefreshTurnIndicators();
         }
 
         private void ScheduleAITurn()
@@ -548,6 +646,11 @@ namespace PremiumLudo
             SetMovementFocus(tokenState, true);
             tokenView.PlayStepMovement(stepPositions, () =>
             {
+                if (tokenState.HasFinished)
+                {
+                    PlayTokenCompletionSound();
+                }
+
                 bool playerFinished = HasAllTokensFinished(tokenState.Owner);
                 if (playerFinished)
                 {
@@ -583,6 +686,31 @@ namespace PremiumLudo
                     AdvanceTurn(roll == 6, captured, true);
                 });
             });
+        }
+
+        private void PlayTokenCompletionSound()
+        {
+            if (_audioSource == null)
+            {
+                _audioSource = LudoUtility.GetOrAddComponent<AudioSource>(gameObject);
+                if (_audioSource != null)
+                {
+                    _audioSource.playOnAwake = false;
+                    _audioSource.loop = false;
+                    _audioSource.spatialBlend = 0f;
+                    _audioSource.volume = 1f;
+                }
+            }
+
+            if (_tokenCompletionSound == null)
+            {
+                _tokenCompletionSound = Resources.Load<AudioClip>("token_completing");
+            }
+
+            if (_audioSource != null && _tokenCompletionSound != null)
+            {
+                _audioSource.PlayOneShot(_tokenCompletionSound, TokenCompletionVolume);
+            }
         }
 
         private void AdvanceTurn(bool rolledSix, bool captured, bool moveWasPlayed)
@@ -631,6 +759,7 @@ namespace PremiumLudo
             }
 
             SetStatus(GetDisplayName(winner) + " wins the game.");
+            RefreshTurnIndicators();
             if (winnerView != null)
             {
                 winnerView.PlayLandingHighlight();
@@ -1191,6 +1320,8 @@ namespace PremiumLudo
                 label.text = GetDisplayName(s_AllColors[i]);
                 label.fontSize = Mathf.RoundToInt(Mathf.Clamp(cellSize * 0.42f, 14f, 20f));
             }
+
+            RefreshTurnIndicators();
         }
 
         private void PositionPlayerLabel(LudoTokenColor color, Vector2 anchoredPosition, Vector2 size)
@@ -1223,6 +1354,91 @@ namespace PremiumLudo
             if (_statusText != null)
             {
                 _statusText.text = message ?? string.Empty;
+            }
+
+            if (_animationController != null && _statusRoot != null)
+            {
+                if (_statusPulseHandle != null)
+                {
+                    _statusPulseHandle.Cancel();
+                }
+
+                _statusRoot.localScale = Vector3.one;
+                _statusPulseHandle = _animationController.SchedulePulse(_statusRoot, Vector3.one, _animationController.TimeNow, 0.28f, 0.02f, 1);
+            }
+        }
+
+        private void RefreshTurnIndicators()
+        {
+            for (int i = 0; i < s_AllColors.Length; i++)
+            {
+                LudoTokenColor color = s_AllColors[i];
+                Text label;
+                if (!_playerLabels.TryGetValue(color, out label) || label == null)
+                {
+                    continue;
+                }
+
+                LudoAnimationHandle handle;
+                if (_playerLabelPulseHandles.TryGetValue(color, out handle) && handle != null)
+                {
+                    handle.Cancel();
+                    _playerLabelPulseHandles[color] = null;
+                }
+
+                bool isActive = _sessionActive && _participants.ContainsKey(color);
+                bool isCurrentTurn = isActive && _currentTurnColor == color && _phase != LudoTurnPhase.Booting && _phase != LudoTurnPhase.GameOver;
+
+                label.rectTransform.localScale = isCurrentTurn ? new Vector3(1.04f, 1.04f, 1f) : Vector3.one;
+                label.color = isCurrentTurn
+                    ? new Color(1f, 0.98f, 0.90f, 0.98f)
+                    : new Color(0.92f, 0.95f, 1f, isActive ? 0.86f : 0.42f);
+
+                Outline outline = label.GetComponent<Outline>();
+                if (outline != null)
+                {
+                    outline.effectColor = isCurrentTurn
+                        ? LudoUtility.WithAlpha(LudoTheme.GetTokenTint(color), 0.58f)
+                        : new Color(0.05f, 0.12f, 0.34f, 0.56f);
+                }
+
+                Shadow shadow = label.GetComponent<Shadow>();
+                if (shadow != null)
+                {
+                    shadow.effectColor = isCurrentTurn
+                        ? new Color(0f, 0f, 0f, 0.24f)
+                        : new Color(0f, 0f, 0f, 0.16f);
+                }
+
+                if (isCurrentTurn && _animationController != null)
+                {
+                    _playerLabelPulseHandles[color] = _animationController.ScheduleLoopPulse(label.rectTransform, label.rectTransform.localScale, 0.028f, 1.2f);
+                }
+            }
+        }
+
+        private void ClearTurnIndicatorAnimations()
+        {
+            if (_statusPulseHandle != null)
+            {
+                _statusPulseHandle.Cancel();
+                _statusPulseHandle = null;
+            }
+
+            for (int i = 0; i < s_AllColors.Length; i++)
+            {
+                LudoAnimationHandle handle;
+                if (_playerLabelPulseHandles.TryGetValue(s_AllColors[i], out handle) && handle != null)
+                {
+                    handle.Cancel();
+                    _playerLabelPulseHandles[s_AllColors[i]] = null;
+                }
+
+                Text label;
+                if (_playerLabels.TryGetValue(s_AllColors[i], out label) && label != null)
+                {
+                    label.rectTransform.localScale = Vector3.one;
+                }
             }
         }
 
@@ -1336,6 +1552,17 @@ namespace PremiumLudo
             }
 
             return tokenViews[tokenState.TokenIndex];
+        }
+
+        private LudoTokenView GetFirstTokenView(LudoTokenColor color)
+        {
+            List<LudoTokenView> tokenViews;
+            if (!_tokenViews.TryGetValue(color, out tokenViews) || tokenViews == null || tokenViews.Count == 0)
+            {
+                return null;
+            }
+
+            return tokenViews[0];
         }
 
         private LudoTokenState FindTokenState(LudoTokenColor color, int tokenIndex)

@@ -8,6 +8,11 @@ namespace PremiumLudo
     public static class LudoUtility
     {
         private static Font s_RuntimeFont;
+        private static readonly string[] s_ConsistentFontFallbacks =
+        {
+            "LegacyRuntime.ttf",
+            "Arial.ttf",
+        };
 
         public static T GetOrAddComponent<T>(GameObject target) where T : Component
         {
@@ -70,9 +75,8 @@ namespace PremiumLudo
         {
             RectTransform rectTransform = CreateUIObject(name, parent);
             Image image = GetOrAddComponent<Image>(rectTransform.gameObject);
-            image.sprite = sprite;
+            ApplySprite(image, sprite);
             image.color = color;
-            image.type = Image.Type.Simple;
             return image;
         }
 
@@ -98,13 +102,24 @@ namespace PremiumLudo
                 return s_RuntimeFont;
             }
 
-            s_RuntimeFont = TryLoadBuiltinFont("LegacyRuntime.ttf");
-            if (s_RuntimeFont != null)
+            for (int i = 0; i < s_ConsistentFontFallbacks.Length; i++)
             {
-                return s_RuntimeFont;
+                s_RuntimeFont = TryLoadBuiltinFont(s_ConsistentFontFallbacks[i]);
+                if (s_RuntimeFont != null)
+                {
+                    return s_RuntimeFont;
+                }
             }
 
-            s_RuntimeFont = TryLoadBuiltinFont("Arial.ttf");
+            try
+            {
+                s_RuntimeFont = Font.CreateDynamicFontFromOSFont(new[] { "Avenir Next", "SF Pro Text", "Segoe UI", "Roboto", "Arial" }, 16);
+            }
+            catch
+            {
+                s_RuntimeFont = null;
+            }
+
             if (s_RuntimeFont != null)
             {
                 return s_RuntimeFont;
@@ -139,6 +154,17 @@ namespace PremiumLudo
                 Mathf.Clamp01(color.g * multiplier),
                 Mathf.Clamp01(color.b * multiplier),
                 color.a);
+        }
+
+        public static void ApplySprite(Image image, Sprite sprite)
+        {
+            if (image == null)
+            {
+                return;
+            }
+
+            image.sprite = sprite;
+            image.type = sprite != null && sprite.border.sqrMagnitude > 0.001f ? Image.Type.Sliced : Image.Type.Simple;
         }
     }
 
@@ -215,11 +241,14 @@ namespace PremiumLudo
         private static readonly Dictionary<Sprite, Sprite> s_TrimmedSpriteCache = new Dictionary<Sprite, Sprite>(8);
         private static Sprite[] s_AllSprites;
         private static Texture2D[] s_AllTextures;
+        private static bool s_ResourceCatalogLoaded;
 
         public static Sprite GetBoardSprite()
         {
             Sprite sprite = TryLoadSprite(
                 "board",
+                "board copy",
+                "board_copy",
                 "ludo_board",
                 "ludo-board",
                 "board_image",
@@ -245,13 +274,13 @@ namespace PremiumLudo
 
             if (sprite != null)
             {
-                return GetOrCreateTrimmedSprite(sprite);
+                return sprite;
             }
 
             sprite = FindSpriteByNameFragments("token_" + colorName) ?? FindSpriteByNameFragments("token", colorName) ?? FindSpriteByNameFragments(colorName);
             if (sprite != null)
             {
-                return GetOrCreateTrimmedSprite(sprite);
+                return sprite;
             }
 
             sprite = TryLoadSprite(
@@ -260,11 +289,11 @@ namespace PremiumLudo
 
             if (sprite != null)
             {
-                return GetOrCreateTrimmedSprite(sprite);
+                return sprite;
             }
 
             sprite = FindSpriteByNameFragments("token");
-            return GetOrCreateTrimmedSprite(sprite);
+            return sprite;
         }
 
         private static Sprite TryLoadSprite(params string[] resourcePaths)
@@ -355,8 +384,14 @@ namespace PremiumLudo
 
         private static void EnsureResourceCatalogLoaded()
         {
+            if (s_ResourceCatalogLoaded && s_AllSprites != null && s_AllTextures != null)
+            {
+                return;
+            }
+
             s_AllSprites = Resources.LoadAll<Sprite>(string.Empty);
             s_AllTextures = Resources.LoadAll<Texture2D>(string.Empty);
+            s_ResourceCatalogLoaded = true;
         }
 
         private static bool NameMatches(string name, string[] fragments)
@@ -523,6 +558,10 @@ namespace PremiumLudo
 
     public static class LudoSpriteFactory
     {
+        private const int BackdropSpriteSize = 2048;
+        private const int RoundedSpriteSize = 1024;
+        private const int CircleSpriteSize = 512;
+        private const float RoundedCornerRatio = 0.16f;
         private static Sprite s_BackdropGradient;
         private static Sprite s_RoundedMask;
         private static Sprite s_RoundedGloss;
@@ -540,7 +579,7 @@ namespace PremiumLudo
             {
                 if (s_BackdropGradient == null)
                 {
-                    s_BackdropGradient = CreateBackdropGradientSprite(128);
+                    s_BackdropGradient = CreateBackdropGradientSprite(BackdropSpriteSize);
                 }
 
                 return s_BackdropGradient;
@@ -553,7 +592,7 @@ namespace PremiumLudo
             {
                 if (s_RoundedMask == null)
                 {
-                    s_RoundedMask = CreateRoundedMaskSprite(96, 0.24f);
+                    s_RoundedMask = CreateRoundedMaskSprite(RoundedSpriteSize, RoundedCornerRatio);
                 }
 
                 return s_RoundedMask;
@@ -566,7 +605,7 @@ namespace PremiumLudo
             {
                 if (s_RoundedGloss == null)
                 {
-                    s_RoundedGloss = CreateRoundedGlossSprite(96, 0.24f);
+                    s_RoundedGloss = CreateRoundedGlossSprite(RoundedSpriteSize, RoundedCornerRatio);
                 }
 
                 return s_RoundedGloss;
@@ -579,7 +618,7 @@ namespace PremiumLudo
             {
                 if (s_RoundedGradient == null)
                 {
-                    s_RoundedGradient = CreateRoundedGradientSprite(96, 0.24f);
+                    s_RoundedGradient = CreateRoundedGradientSprite(RoundedSpriteSize, RoundedCornerRatio);
                 }
 
                 return s_RoundedGradient;
@@ -592,7 +631,7 @@ namespace PremiumLudo
             {
                 if (s_RoundedInnerShadow == null)
                 {
-                    s_RoundedInnerShadow = CreateRoundedInnerShadowSprite(96, 0.24f);
+                    s_RoundedInnerShadow = CreateRoundedInnerShadowSprite(RoundedSpriteSize, RoundedCornerRatio);
                 }
 
                 return s_RoundedInnerShadow;
@@ -605,7 +644,7 @@ namespace PremiumLudo
             {
                 if (s_CircleMask == null)
                 {
-                    s_CircleMask = CreateCircleMaskSprite(128);
+                    s_CircleMask = CreateCircleMaskSprite(CircleSpriteSize);
                 }
 
                 return s_CircleMask;
@@ -618,7 +657,7 @@ namespace PremiumLudo
             {
                 if (s_CircleGloss == null)
                 {
-                    s_CircleGloss = CreateCircleGlossSprite(128);
+                    s_CircleGloss = CreateCircleGlossSprite(CircleSpriteSize);
                 }
 
                 return s_CircleGloss;
@@ -631,7 +670,7 @@ namespace PremiumLudo
             {
                 if (s_CircleGradient == null)
                 {
-                    s_CircleGradient = CreateCircleGradientSprite(128);
+                    s_CircleGradient = CreateCircleGradientSprite(CircleSpriteSize);
                 }
 
                 return s_CircleGradient;
@@ -644,7 +683,7 @@ namespace PremiumLudo
             {
                 if (s_CircleInnerShadow == null)
                 {
-                    s_CircleInnerShadow = CreateCircleInnerShadowSprite(128);
+                    s_CircleInnerShadow = CreateCircleInnerShadowSprite(CircleSpriteSize);
                 }
 
                 return s_CircleInnerShadow;
@@ -657,7 +696,7 @@ namespace PremiumLudo
             {
                 if (s_SoftDisc == null)
                 {
-                    s_SoftDisc = CreateSoftDiscSprite(128);
+                    s_SoftDisc = CreateSoftDiscSprite(CircleSpriteSize);
                 }
 
                 return s_SoftDisc;
@@ -718,7 +757,7 @@ namespace PremiumLudo
 
             texture.SetPixels(pixels);
             texture.Apply(false, true);
-            return CreateSprite(texture);
+            return CreateSprite(texture, Mathf.RoundToInt(radius));
         }
 
         private static Sprite CreateRoundedGlossSprite(int size, float radiusRatio)
@@ -743,7 +782,7 @@ namespace PremiumLudo
 
             texture.SetPixels(pixels);
             texture.Apply(false, true);
-            return CreateSprite(texture);
+            return CreateSprite(texture, Mathf.RoundToInt(radius));
         }
 
         private static Sprite CreateRoundedGradientSprite(int size, float radiusRatio)
@@ -759,17 +798,17 @@ namespace PremiumLudo
                     float alpha = EvaluateRoundedAlpha(x, y, size, radius, 1.6f);
                     float u = (float)x / (size - 1);
                     float v = (float)y / (size - 1);
-                    float diagonal = (u * 0.58f) + ((1f - v) * 0.42f);
-                    float centerDistance = Vector2.Distance(new Vector2(u, v), new Vector2(0.36f, 0.72f));
-                    float centerBoost = Mathf.Clamp01(1f - (centerDistance / 0.90f));
-                    float value = Mathf.Clamp01(0.76f + ((1f - diagonal) * 0.18f) + (centerBoost * 0.12f));
+                    float diagonal = (u * 0.55f) + ((1f - v) * 0.45f);
+                    float centerDistance = Vector2.Distance(new Vector2(u, v), new Vector2(0.42f, 0.72f));
+                    float centerBoost = Mathf.Clamp01(1f - (centerDistance / 0.86f));
+                    float value = Mathf.Clamp01(0.90f + ((1f - diagonal) * 0.05f) + (centerBoost * 0.03f));
                     pixels[(y * size) + x] = new Color(value, value, value, alpha);
                 }
             }
 
             texture.SetPixels(pixels);
             texture.Apply(false, true);
-            return CreateSprite(texture);
+            return CreateSprite(texture, Mathf.RoundToInt(radius));
         }
 
         private static Sprite CreateRoundedInnerShadowSprite(int size, float radiusRatio)
@@ -793,7 +832,7 @@ namespace PremiumLudo
 
             texture.SetPixels(pixels);
             texture.Apply(false, true);
-            return CreateSprite(texture);
+            return CreateSprite(texture, Mathf.RoundToInt(radius));
         }
 
         private static Sprite CreateCircleMaskSprite(int size)
@@ -929,7 +968,13 @@ namespace PremiumLudo
 
         private static Sprite CreateSprite(Texture2D texture)
         {
-            return Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), texture.width);
+            return CreateSprite(texture, 0);
+        }
+
+        private static Sprite CreateSprite(Texture2D texture, int border)
+        {
+            Vector4 spriteBorder = border > 0 ? new Vector4(border, border, border, border) : Vector4.zero;
+            return Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), texture.width, 0, SpriteMeshType.FullRect, spriteBorder);
         }
 
         private static float EvaluateRoundedAlpha(int x, int y, int size, float radius, float edgeSoftness)

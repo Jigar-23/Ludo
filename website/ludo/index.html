@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0f2459" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-touch-fullscreen" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Premium Ludo" />
+    <link rel="manifest" href="/site.webmanifest?v=20260401b" />
+    <title>Play Premium Ludo</title>
+    <link rel="stylesheet" href="/assets/site.css?v=20260401b" />
+  </head>
+  <body class="game-page">
+    <main class="game-shell">
+      <header class="game-topbar">
+        <a class="ghost-button" href="/">Back</a>
+        <div class="game-topbar__title">
+          <span class="eyebrow">Unity WebGL</span>
+          <h1>Premium Ludo</h1>
+        </div>
+        <button id="fullscreen-button" class="ghost-button" type="button">Fullscreen</button>
+      </header>
+
+      <section class="game-card">
+        <div id="unity-container" class="unity-container">
+          <canvas id="unity-canvas" tabindex="-1" aria-label="Premium Ludo game"></canvas>
+
+          <div id="unity-loading" class="loading-overlay">
+            <div class="loading-panel">
+              <span class="loading-kicker">Loading game</span>
+              <h2>Preparing Premium Ludo</h2>
+              <p id="loading-status">Starting Unity runtime...</p>
+              <div class="progress-track" aria-hidden="true">
+                <div id="progress-bar" class="progress-bar"></div>
+              </div>
+              <div class="loading-hint">First load can take a few seconds. Later loads are cached.</div>
+            </div>
+          </div>
+
+          <div id="unity-error" class="error-banner" hidden></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" defer></script>
+    <script src="/assets/ludo-loader.js?v=20260401b" defer></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "Premium Ludo",
+  "short_name": "Ludo",
+  "start_url": "/ludo/",
+  "display": "standalone",
+  "background_color": "#0f2459",
+  "theme_color": "#0f2459",
+  "orientation": "portrait-primary"
+}
