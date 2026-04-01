@@ -231,7 +231,7 @@ namespace PremiumLudo
             _homeCanvasGroup = PrepareScreen(_homeScreen);
 
             _homePanel = CreateFloatingPanel(_homeScreen, "HomePanel");
-            _homeTitleText = LudoUtility.CreateText("Title", _homePanel, "PREMIUM LUDO", 42, FontStyle.Bold, TextAnchor.MiddleCenter, LudoTheme.TextPrimary);
+            _homeTitleText = LudoUtility.CreateText("Title", _homePanel, "LUDO APP", 42, FontStyle.Bold, TextAnchor.MiddleCenter, LudoTheme.TextPrimary);
             ConfigureSection(_homeTitleText.rectTransform, 80f);
             _homeTitleText.raycastTarget = false;
 

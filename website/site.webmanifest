@@ -1,5 +1,5 @@
 {
-  "name": "Premium Ludo",
+  "name": "Ludo app",
   "short_name": "Ludo",
   "start_url": "/ludo/",
   "display": "standalone",

@@ -184,7 +184,7 @@
       codeUrl: base + manifest.codeUrl,
       streamingAssetsUrl: base + streamingAssetsPath,
       companyName: manifest.companyName || "Jigar",
-      productName: manifest.productName || "Premium Ludo",
+      productName: manifest.productName || "Ludo app",
       productVersion: manifest.productVersion || "1.0.0",
       devicePixelRatio: getDevicePixelRatio(),
       matchWebGLToCanvasSize: true,

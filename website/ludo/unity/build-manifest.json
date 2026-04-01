@@ -1,11 +1,11 @@
 {
   "companyName": "Jigar",
-  "productName": "Premium Ludo",
+  "productName": "Ludo app",
   "productVersion": "1.0.0",
-  "loaderUrl": "Build/815323a3bd35848d4a24b5fbbfd63fab.loader.js",
-  "dataUrl": "Build/2ef119e2434306131a0576c5ff2b4848.data.unityweb",
+  "loaderUrl": "Build/ff7cc1a95b27ceaf0fe6fd3374a59334.loader.js",
+  "dataUrl": "Build/404a7d59e62f9a7f3eaa9f2c84562a5f.data.unityweb",
   "frameworkUrl": "Build/bcb9406bfa4612a33cae897b34b7fbbe.framework.js.unityweb",
-  "codeUrl": "Build/f42388fc80d23ca052627c3bf8a7d754.wasm.unityweb",
+  "codeUrl": "Build/7f4eb864d5b0394c605f5f34fd97f7a1.wasm.unityweb",
   "symbolsUrl": "",
   "streamingAssetsUrl": "",
   "templateDataPresent": false

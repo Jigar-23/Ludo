@@ -8,8 +8,11 @@ namespace PremiumLudo
     public sealed class LudoGameController : MonoBehaviour
     {
         private const float TurnHandoffDelay = 0.84f;
+        private const float NetworkTurnHandoffDelay = 0.06f;
         private const float HumanAutoMoveDelay = 0.18f;
+        private const float OnlineHumanAutoMoveDelay = 0.04f;
         private const float AITokenChoiceDelay = 0.35f;
+        private const float RemoteRollAnimationDuration = 0.22f;
         private const float TokenCompletionVolume = 0.95f;
 
         private static readonly LudoTokenColor[] s_AllColors =
@@ -143,7 +146,7 @@ namespace PremiumLudo
             _phase = LudoTurnPhase.Resolving;
             _diceView.SetDockForTokenColor(actionColor, true);
             _diceView.SetInteractable(false);
-            _diceView.PlayRollAnimation(action.Roll, UnityEngine.Random.Range(0.55f, 0.90f), () =>
+            _diceView.PlayRollAnimation(action.Roll, RemoteRollAnimationDuration, () =>
             {
                 if (action.NoMove || action.TokenIndex < 0)
                 {
@@ -585,7 +588,8 @@ namespace PremiumLudo
             {
                 LudoTokenState tokenState = movableTokens[0];
                 SetStatus(GetDisplayName(color) + " rolled " + roll + ". Moving the only available token.");
-                _animationController.Delay(HumanAutoMoveDelay, () =>
+                float autoMoveDelay = ShouldBroadcastTurnAction(color) ? OnlineHumanAutoMoveDelay : HumanAutoMoveDelay;
+                _animationController.Delay(autoMoveDelay, () =>
                 {
                     if (_phase != LudoTurnPhase.AwaitingHumanMove)
                     {
@@ -624,7 +628,7 @@ namespace PremiumLudo
             ExecuteMove(tokenState, _pendingRoll, ShouldBroadcastTurnAction(_currentTurnColor));
         }
 
-        private void ExecuteMove(LudoTokenState tokenState, int roll, bool broadcastWhenDone)
+        private void ExecuteMove(LudoTokenState tokenState, int roll, bool broadcastTurnAction)
         {
             if (!_sessionActive || tokenState == null || _phase == LudoTurnPhase.GameOver)
             {
@@ -643,6 +647,11 @@ namespace PremiumLudo
             List<Vector2> stepPositions = BuildStepPath(tokenState, roll, out int finalProgress);
             tokenState.Progress = finalProgress;
 
+            if (broadcastTurnAction)
+            {
+                EmitTurnAction(tokenState.Owner, roll, tokenState.TokenIndex, false);
+            }
+
             SetMovementFocus(tokenState, true);
             tokenView.PlayStepMovement(stepPositions, () =>
             {
@@ -654,11 +663,6 @@ namespace PremiumLudo
                 bool playerFinished = HasAllTokensFinished(tokenState.Owner);
                 if (playerFinished)
                 {
-                    if (broadcastWhenDone)
-                    {
-                        EmitTurnAction(tokenState.Owner, roll, tokenState.TokenIndex, false);
-                    }
-
                     SetMovementFocus(null, false);
                     HandleGameOver(tokenState.Owner, tokenView);
                     return;
@@ -676,11 +680,6 @@ namespace PremiumLudo
                         SetStatus(captured
                             ? GetDisplayName(tokenState.Owner) + " captured a token."
                             : GetDisplayName(tokenState.Owner) + " moved " + roll + (roll == 1 ? " step." : " steps."));
-                    }
-
-                    if (broadcastWhenDone)
-                    {
-                        EmitTurnAction(tokenState.Owner, roll, tokenState.TokenIndex, false);
                     }
 
                     AdvanceTurn(roll == 6, captured, true);
@@ -730,7 +729,13 @@ namespace PremiumLudo
             _currentTurnIndex = (_currentTurnIndex + 1) % _turnOrder.Count;
             LudoTokenColor nextTurn = _turnOrder[_currentTurnIndex];
             string status = BuildTurnPrompt(nextTurn);
-            float handoffDelay = moveWasPlayed ? 0f : TurnHandoffDelay;
+            float handoffDelay = 0f;
+            if (!moveWasPlayed)
+            {
+                handoffDelay = _sessionConfig != null && _sessionConfig.UsesNetwork
+                    ? NetworkTurnHandoffDelay
+                    : TurnHandoffDelay;
+            }
 
             if (_animationController != null && handoffDelay > 0f)
             {
