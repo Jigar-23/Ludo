@@ -2,10 +2,10 @@
   "companyName": "Jigar",
   "productName": "Ludo app",
   "productVersion": "1.0.0",
-  "loaderUrl": "Build/ff7cc1a95b27ceaf0fe6fd3374a59334.loader.js",
-  "dataUrl": "Build/404a7d59e62f9a7f3eaa9f2c84562a5f.data.unityweb",
+  "loaderUrl": "Build/b8cef61c7d3a1a65251296107dbfdb25.loader.js",
+  "dataUrl": "Build/4983fc34d77b120d8fe7c7caa9f77174.data.unityweb",
   "frameworkUrl": "Build/bcb9406bfa4612a33cae897b34b7fbbe.framework.js.unityweb",
-  "codeUrl": "Build/7f4eb864d5b0394c605f5f34fd97f7a1.wasm.unityweb",
+  "codeUrl": "Build/d15846deba9a9f6c85a80c6a467517b0.wasm.unityweb",
   "symbolsUrl": "",
   "streamingAssetsUrl": "",
   "templateDataPresent": false

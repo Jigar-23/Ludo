@@ -9,9 +9,11 @@ namespace PremiumLudo
         private sealed class MessageView
         {
             public RectTransform Root;
+            public LayoutElement RootLayout;
             public Image Fill;
             public Outline Outline;
             public Text SenderText;
+            public LayoutElement SenderLayout;
             public Text BodyText;
             public LayoutElement BodyLayout;
         }
@@ -96,11 +98,15 @@ namespace PremiumLudo
             bubble.Root.SetSiblingIndex(_activeMessageCount);
             bubble.Fill.color = emphasize ? new Color(0.20f, 0.42f, 0.92f, 0.94f) : new Color(1f, 1f, 1f, 0.93f);
             bubble.Outline.effectColor = LudoUtility.WithAlpha(accentColor, emphasize ? 0.42f : 0.18f);
-            bubble.SenderText.text = string.IsNullOrWhiteSpace(sender) ? "Player" : sender;
+            string safeSender = string.IsNullOrWhiteSpace(sender) ? "Player" : sender.Trim();
+            string safeMessage = message.Trim();
+            bubble.SenderText.text = safeSender;
             bubble.SenderText.color = emphasize ? Color.white : accentColor;
-            bubble.BodyText.text = message.Trim();
+            bubble.BodyText.text = safeMessage;
             bubble.BodyText.color = emphasize ? new Color(0.98f, 0.99f, 1f, 1f) : new Color(0.21f, 0.24f, 0.30f, 1f);
-            bubble.BodyLayout.preferredHeight = Mathf.Max(26f, bubble.BodyText.preferredHeight);
+            bubble.SenderLayout.preferredHeight = Mathf.Max(20f, Mathf.Ceil(bubble.SenderText.preferredHeight));
+            bubble.BodyLayout.preferredHeight = Mathf.Max(32f, Mathf.Ceil(bubble.BodyText.preferredHeight) + 4f);
+            bubble.RootLayout.preferredHeight = bubble.SenderLayout.preferredHeight + bubble.BodyLayout.preferredHeight + 42f;
             _activeMessageCount += 1;
 
             Canvas.ForceUpdateCanvases();
@@ -127,8 +133,8 @@ namespace PremiumLudo
             outline.useGraphicAlpha = true;
 
             VerticalLayoutGroup bubbleLayout = LudoUtility.GetOrAddComponent<VerticalLayoutGroup>(bubble.gameObject);
-            bubbleLayout.padding = new RectOffset(16, 16, 12, 12);
-            bubbleLayout.spacing = 6f;
+            bubbleLayout.padding = new RectOffset(18, 18, 14, 14);
+            bubbleLayout.spacing = 8f;
             bubbleLayout.childAlignment = TextAnchor.UpperLeft;
             bubbleLayout.childControlWidth = true;
             bubbleLayout.childControlHeight = false;
@@ -139,32 +145,51 @@ namespace PremiumLudo
             bubbleFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
             bubbleFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            LayoutElement layoutElement = LudoUtility.GetOrAddComponent<LayoutElement>(bubble.gameObject);
-            layoutElement.minHeight = 58f;
-            layoutElement.preferredWidth = 0f;
-            layoutElement.flexibleWidth = 1f;
+            LayoutElement rootLayout = LudoUtility.GetOrAddComponent<LayoutElement>(bubble.gameObject);
+            rootLayout.minHeight = 70f;
+            rootLayout.preferredHeight = 86f;
+            rootLayout.minWidth = 0f;
+            rootLayout.preferredWidth = 0f;
+            rootLayout.flexibleWidth = 1f;
 
-            Text senderText = LudoUtility.CreateText("Sender", bubble, "Player", 18, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+            RectTransform senderRow = LudoUtility.CreateUIObject("SenderRow", bubble);
+            LayoutElement senderRowLayout = LudoUtility.GetOrAddComponent<LayoutElement>(senderRow.gameObject);
+            senderRowLayout.minHeight = 20f;
+            senderRowLayout.preferredHeight = 20f;
+            senderRowLayout.flexibleWidth = 1f;
+
+            Text senderText = LudoUtility.CreateText("Sender", senderRow, "Player", 14, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+            LudoUtility.Stretch(senderText.rectTransform);
             senderText.raycastTarget = false;
             senderText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            senderText.verticalOverflow = VerticalWrapMode.Overflow;
+            senderText.verticalOverflow = VerticalWrapMode.Truncate;
+            senderText.supportRichText = false;
+            senderText.resizeTextForBestFit = false;
 
-            Text messageText = LudoUtility.CreateText("Body", bubble, string.Empty, 18, FontStyle.Normal, TextAnchor.UpperLeft, Color.white);
+            RectTransform bodyRoot = LudoUtility.CreateUIObject("BodyRoot", bubble);
+            LayoutElement bodyLayout = LudoUtility.GetOrAddComponent<LayoutElement>(bodyRoot.gameObject);
+            bodyLayout.minHeight = 32f;
+            bodyLayout.preferredHeight = 32f;
+            bodyLayout.flexibleWidth = 1f;
+
+            Text messageText = LudoUtility.CreateText("Body", bodyRoot, string.Empty, 17, FontStyle.Normal, TextAnchor.UpperLeft, Color.white);
+            LudoUtility.Stretch(messageText.rectTransform);
             messageText.raycastTarget = false;
             messageText.horizontalOverflow = HorizontalWrapMode.Wrap;
             messageText.verticalOverflow = VerticalWrapMode.Overflow;
-
-            LayoutElement messageLayout = LudoUtility.GetOrAddComponent<LayoutElement>(messageText.gameObject);
-            messageLayout.preferredHeight = 26f;
+            messageText.supportRichText = false;
+            messageText.lineSpacing = 1.08f;
 
             MessageView view = new MessageView
             {
                 Root = bubble,
+                RootLayout = rootLayout,
                 Fill = bubbleFill,
                 Outline = outline,
                 SenderText = senderText,
+                SenderLayout = senderRowLayout,
                 BodyText = messageText,
-                BodyLayout = messageLayout,
+                BodyLayout = bodyLayout,
             };
             _messagePool.Add(view);
             return view;
@@ -233,7 +258,7 @@ namespace PremiumLudo
             RectTransform scrollRoot = LudoUtility.CreateUIObject("ScrollRoot", _windowRect);
             LayoutElement scrollLayout = LudoUtility.GetOrAddComponent<LayoutElement>(scrollRoot.gameObject);
             scrollLayout.flexibleHeight = 1f;
-            scrollLayout.preferredHeight = 220f;
+            scrollLayout.preferredHeight = 248f;
 
             Image scrollFill = LudoUtility.GetOrAddComponent<Image>(scrollRoot.gameObject);
             LudoUtility.ApplySprite(scrollFill, LudoSpriteFactory.RoundedMask);
@@ -257,7 +282,7 @@ namespace PremiumLudo
 
             VerticalLayoutGroup contentLayout = LudoUtility.GetOrAddComponent<VerticalLayoutGroup>(_contentRect.gameObject);
             contentLayout.padding = new RectOffset(2, 2, 2, 2);
-            contentLayout.spacing = 8f;
+            contentLayout.spacing = 10f;
             contentLayout.childAlignment = TextAnchor.UpperLeft;
             contentLayout.childControlWidth = true;
             contentLayout.childControlHeight = true;
@@ -278,7 +303,7 @@ namespace PremiumLudo
 
             RectTransform composer = LudoUtility.CreateUIObject("Composer", _windowRect);
             LayoutElement composerLayout = LudoUtility.GetOrAddComponent<LayoutElement>(composer.gameObject);
-            composerLayout.preferredHeight = 60f;
+            composerLayout.preferredHeight = 64f;
             HorizontalLayoutGroup composerGroup = LudoUtility.GetOrAddComponent<HorizontalLayoutGroup>(composer.gameObject);
             composerGroup.spacing = 10f;
             composerGroup.childAlignment = TextAnchor.MiddleCenter;
@@ -361,8 +386,8 @@ namespace PremiumLudo
             }
 
             _lastParentSize = _parentRect.rect.size;
-            float width = Mathf.Clamp(_lastParentSize.x * 0.34f, 320f, 420f);
-            float height = Mathf.Clamp(_lastParentSize.y * 0.36f, 300f, 420f);
+            float width = Mathf.Clamp(_lastParentSize.x * 0.40f, 360f, 480f);
+            float height = Mathf.Clamp(_lastParentSize.y * 0.42f, 340f, 500f);
             float toggleWidth = 110f;
             float toggleHeight = 56f;
 
