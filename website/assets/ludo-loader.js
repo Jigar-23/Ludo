@@ -77,6 +77,8 @@
     showBanner(message, "error");
   }
 
+  window.PremiumLudoShowError = setError;
+
   function setInfo(message) {
     showBanner(message, "info");
     bannerTimeout = window.setTimeout(() => {
