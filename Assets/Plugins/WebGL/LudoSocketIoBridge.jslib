@@ -52,20 +52,23 @@ function createPremiumLudoSocketBridge() {
       }
 
       self.scriptPromise = new Promise(function (resolve, reject) {
-        var existing = document.querySelector("script[data-premium-ludo-socketio]");
-        if (existing) {
-          existing.addEventListener("load", function () { resolve(); }, { once: true });
-          existing.addEventListener("error", function () { reject(new Error("Socket.IO library failed to load.")); }, { once: true });
-          return;
+        var deadlineAt = Date.now() + 4000;
+
+        function waitForIo() {
+          if (typeof window.io === "function") {
+            resolve();
+            return;
+          }
+
+          if (Date.now() >= deadlineAt) {
+            reject(new Error("Socket.IO library is not available on the page."));
+            return;
+          }
+
+          window.setTimeout(waitForIo, 50);
         }
 
-        var script = document.createElement("script");
-        script.src = "https://cdn.socket.io/4.8.1/socket.io.min.js";
-        script.async = true;
-        script.dataset.premiumLudoSocketio = "true";
-        script.onload = function () { resolve(); };
-        script.onerror = function () { reject(new Error("Socket.IO library failed to load.")); };
-        document.head.appendChild(script);
+        waitForIo();
       });
 
       return self.scriptPromise;

@@ -135,6 +135,11 @@ namespace PremiumLudo
             get { return _serverBaseUrl; }
         }
 
+        public bool HasPendingCommand
+        {
+            get { return _pendingCommand != PendingCommand.None; }
+        }
+
         private void Awake()
         {
             EnsureSocketClient();
@@ -670,6 +675,19 @@ namespace PremiumLudo
                 return;
             }
 
+            string incomingRoomCode = string.IsNullOrWhiteSpace(snapshot.RoomCode) ? _roomCode : snapshot.RoomCode.Trim().ToUpperInvariant();
+            string incomingRoomId = string.IsNullOrWhiteSpace(snapshot.RoomId) ? _roomId : snapshot.RoomId;
+            bool exactDuplicate = !string.IsNullOrEmpty(incomingRoomCode)
+                && string.Equals(incomingRoomCode, _roomCode, StringComparison.OrdinalIgnoreCase)
+                && snapshot.RoomSequence == _lastRoomSequence
+                && snapshot.StateVersion == _lastStateVersion
+                && (string.IsNullOrEmpty(incomingRoomId) || string.IsNullOrEmpty(_roomId) || string.Equals(incomingRoomId, _roomId, StringComparison.Ordinal));
+            if (exactDuplicate)
+            {
+                EmitStatus(snapshot.Started ? "Match live" : "Room ready");
+                return;
+            }
+
             bool isStaleRoom = snapshot.RoomSequence > 0 && snapshot.RoomSequence < _lastRoomSequence;
             bool isStaleState = snapshot.StateVersion > 0 && snapshot.StateVersion < _lastStateVersion;
             if (isStaleRoom && isStaleState)
@@ -677,8 +695,8 @@ namespace PremiumLudo
                 return;
             }
 
-            _roomCode = string.IsNullOrWhiteSpace(snapshot.RoomCode) ? _roomCode : snapshot.RoomCode.Trim().ToUpperInvariant();
-            _roomId = string.IsNullOrWhiteSpace(snapshot.RoomId) ? _roomId : snapshot.RoomId;
+            _roomCode = incomingRoomCode;
+            _roomId = incomingRoomId;
             _connected = true;
             _lastRoomSequence = Math.Max(_lastRoomSequence, snapshot.RoomSequence);
             _lastStateVersion = Math.Max(_lastStateVersion, snapshot.StateVersion);

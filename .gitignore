@@ -36,3 +36,7 @@ RenderServer/node_modules/
 # OS / misc
 *.swp
 *.stackdump
+
+# Keep the deployable Unity WebGL web build in source control
+!website/ludo/unity/Build/
+!website/ludo/unity/Build/**

@@ -47,19 +47,19 @@ function registerSocketHandlers(io, roomManager) {
         Snapshot: buildSnapshot(room),
       });
 
-      io.to(room.roomCode).emit("playerJoined", buildSeatEvent(room, player, {
-        PlayerId: player.playerId,
-        AssignedColor: player.color,
-      }));
+      socket.to(room.roomCode).emit("playerJoined", buildSeatEvent(room, player));
     }));
 
     socket.on("joinRoom", guard(socket, async (payload) => {
       const { room, player } = await roomManager.joinRoom(payload, socket.id);
       await socket.join(room.roomCode);
-      io.to(room.roomCode).emit("playerJoined", buildSeatEvent(room, player, {
+
+      socket.emit("playerJoined", buildSeatEvent(room, player, {
         PlayerId: player.playerId,
         AssignedColor: player.color,
       }));
+
+      socket.to(room.roomCode).emit("playerJoined", buildSeatEvent(room, player));
     }));
 
     socket.on("recoverSession", guard(socket, async (payload) => {

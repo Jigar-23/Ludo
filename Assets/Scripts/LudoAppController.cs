@@ -882,6 +882,46 @@ namespace PremiumLudo
             {
                 _setupHintText.text = BuildSetupHint();
             }
+
+            RefreshOnlineBusyState();
+        }
+
+        private void RefreshOnlineBusyState()
+        {
+            bool isBusy = _setupMode == LudoGameMode.Online && _onlineService != null && _onlineService.HasPendingCommand;
+
+            SetButtonInteractable(_playButton, !isBusy);
+            SetButtonInteractable(_setupBackButton, !isBusy);
+            SetButtonInteractable(_onlineCreateButton, !isBusy);
+            SetButtonInteractable(_onlineJoinButton, !isBusy);
+
+            foreach (KeyValuePair<int, ButtonView> entry in _playerCountButtons)
+            {
+                SetButtonInteractable(entry.Value, !isBusy);
+            }
+
+            foreach (KeyValuePair<LudoTokenColor, ColorChipView> entry in _colorChips)
+            {
+                if (entry.Value != null)
+                {
+                    SetButtonInteractable(entry.Value.ButtonView, !isBusy);
+                }
+            }
+
+            foreach (KeyValuePair<LudoTokenColor, ButtonView> entry in _localColorButtons)
+            {
+                SetButtonInteractable(entry.Value, !isBusy);
+            }
+
+            if (_playerNameField != null)
+            {
+                _playerNameField.interactable = !isBusy;
+            }
+
+            if (_roomCodeField != null)
+            {
+                _roomCodeField.interactable = !isBusy;
+            }
         }
 
         private string BuildChipSubtitle(LudoTokenColor color)
@@ -1170,6 +1210,7 @@ namespace PremiumLudo
 
                 _setupHintText.text = "Creating room...";
                 _onlineService.CreateRoomAndJoin(playerName, _selectedPlayerCount, BuildActiveColorsInBoardOrder(), _localColor);
+                RefreshSetupUi();
                 return;
             }
 
@@ -1181,6 +1222,7 @@ namespace PremiumLudo
 
             _setupHintText.text = "Joining room...";
             _onlineService.JoinRoom(_roomCodeField.text, playerName, _localColor);
+            RefreshSetupUi();
         }
 
         private bool TryBuildOfflineSession(out LudoSessionConfig sessionConfig, out string error)
@@ -1363,6 +1405,7 @@ namespace PremiumLudo
             if (_currentScreen == AppScreen.Setup && _setupHintText != null && !string.IsNullOrEmpty(status))
             {
                 _setupHintText.text = status;
+                RefreshSetupUi();
             }
 
             if (_currentScreen == AppScreen.Lobby && _lobbyStatusText != null && !string.IsNullOrEmpty(status))
@@ -1376,6 +1419,7 @@ namespace PremiumLudo
             if (_currentScreen == AppScreen.Setup && _setupHintText != null)
             {
                 _setupHintText.text = error;
+                RefreshSetupUi();
             }
 
             if (_currentScreen == AppScreen.Lobby && _lobbyStatusText != null)
@@ -1974,6 +2018,27 @@ namespace PremiumLudo
             if (feedback != null)
             {
                 feedback.SyncBaseState();
+            }
+        }
+
+        private static void SetButtonInteractable(ButtonView view, bool interactable)
+        {
+            if (view == null)
+            {
+                return;
+            }
+
+            if (view.Button != null)
+            {
+                view.Button.interactable = interactable;
+            }
+
+            if (view.Root != null)
+            {
+                CanvasGroup canvasGroup = LudoUtility.GetOrAddComponent<CanvasGroup>(view.Root.gameObject);
+                canvasGroup.alpha = interactable ? 1f : 0.58f;
+                canvasGroup.interactable = interactable;
+                canvasGroup.blocksRaycasts = interactable;
             }
         }
 

@@ -86,6 +86,35 @@
     }, 5000);
   }
 
+  function formatRuntimeError(reason) {
+    if (!reason) {
+      return "A browser runtime error interrupted the game.";
+    }
+
+    if (typeof reason === "string") {
+      return reason;
+    }
+
+    if (typeof reason.message === "string" && reason.message) {
+      return reason.message;
+    }
+
+    try {
+      return JSON.stringify(reason);
+    } catch (_error) {
+      return "A browser runtime error interrupted the game.";
+    }
+  }
+
+  window.addEventListener("error", (event) => {
+    const message = event && event.message ? event.message : "A browser runtime error interrupted the game.";
+    setError(message);
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    setError(formatRuntimeError(event ? event.reason : null));
+  });
+
   function hideLoading() {
     if (loadingOverlay) {
       loadingOverlay.style.display = "none";
@@ -185,7 +214,22 @@
     if (canUseNativeFullscreen) {
       fullscreenButton.textContent = "Fullscreen";
       fullscreenButton.addEventListener("click", () => {
-        instance.SetFullscreen(1);
+        if (typeof container.requestFullscreen === "function") {
+          container.requestFullscreen().catch(() => {
+            if (instance && typeof instance.SetFullscreen === "function") {
+              instance.SetFullscreen(1);
+            } else {
+              setInfo("Fullscreen is unavailable in this browser.");
+            }
+          });
+          return;
+        }
+
+        if (instance && typeof instance.SetFullscreen === "function") {
+          instance.SetFullscreen(1);
+        } else {
+          setInfo("Fullscreen is unavailable in this browser.");
+        }
       });
       return;
     }
